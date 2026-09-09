@@ -181,6 +181,41 @@ const App = {
       btnSaveSettings.addEventListener('click', () => this.saveAdminSettings());
     }
 
+    // Supabase Settings & Test
+    const btnSaveSupabase = document.getElementById('btnSaveSupabase');
+    if (btnSaveSupabase) {
+      btnSaveSupabase.addEventListener('click', () => this.saveSupabaseSettings());
+    }
+    const btnTestSupabase = document.getElementById('btnTestSupabase');
+    if (btnTestSupabase) {
+      btnTestSupabase.addEventListener('click', () => this.testSupabaseConnection());
+    }
+    const btnToggleSupabaseKey = document.getElementById('btnToggleSupabaseKey');
+    if (btnToggleSupabaseKey) {
+      btnToggleSupabaseKey.addEventListener('click', () => {
+        const inputKey = document.getElementById('settingSupabaseAnonKey');
+        if (inputKey) {
+          const isPw = inputKey.type === 'password';
+          inputKey.type = isPw ? 'text' : 'password';
+          btnToggleSupabaseKey.textContent = isPw ? '🙈' : '👁️';
+        }
+      });
+    }
+
+    // SQL Schema Modal
+    const btnShowSqlModal = document.getElementById('btnShowSqlModal');
+    if (btnShowSqlModal) {
+      btnShowSqlModal.addEventListener('click', () => this.openSqlModal());
+    }
+    const btnCloseSqlModal = document.getElementById('btnCloseSqlModal');
+    if (btnCloseSqlModal) {
+      btnCloseSqlModal.addEventListener('click', () => this.closeSqlModal());
+    }
+    const btnCopySqlSchema = document.getElementById('btnCopySqlSchema');
+    if (btnCopySqlSchema) {
+      btnCopySqlSchema.addEventListener('click', () => this.copySqlSchema());
+    }
+
     // Update Admin Password
     const btnUpdateAdminPassword = document.getElementById('btnUpdateAdminPassword');
     if (btnUpdateAdminPassword) {
@@ -616,7 +651,14 @@ const App = {
 
     const syncTag = document.getElementById('modalSyncTag');
     if (syncTag) {
-      syncTag.textContent = record.syncedToSheet ? '✅ Live Synced to Google Sheets' : '⚡ Saved Locally (Pending Cloud Sync)';
+      const syncd = [];
+      if (record.syncedToSupabase) syncd.push('⚡ Supabase (PostgreSQL)');
+      if (record.syncedToSheet) syncd.push('📊 Google Sheets');
+      if (syncd.length > 0) {
+        syncTag.textContent = `✅ Live Synced to ${syncd.join(' & ')}`;
+      } else {
+        syncTag.textContent = '⚡ Saved Locally (Pending Cloud Sync)';
+      }
     }
 
     modal.classList.add('open');
@@ -808,6 +850,16 @@ const App = {
 
     if (webhookInput) webhookInput.value = cfg.webhookUrl || ApiService.DEFAULT_WEBHOOK_URL;
     if (pwdInput) pwdInput.value = '';
+
+    // Load Supabase Settings
+    if (typeof SupabaseService !== 'undefined') {
+      const sbCfg = SupabaseService.getConfig();
+      const sbUrlInput = document.getElementById('settingSupabaseUrl');
+      const sbKeyInput = document.getElementById('settingSupabaseAnonKey');
+      if (sbUrlInput) sbUrlInput.value = sbCfg.url || '';
+      if (sbKeyInput) sbKeyInput.value = sbCfg.anonKey || '';
+      this.updateSupabaseBadge();
+    }
   },
 
   renderWorkersList() {
@@ -916,6 +968,153 @@ const App = {
 
     ApiService.saveConfig(cfg);
     this.showToast('Google Sheet Webhook saved!', 'success');
+  },
+
+  updateSupabaseBadge() {
+    const badge = document.getElementById('supabaseStatusBadge');
+    if (!badge) return;
+    if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+      badge.className = 'status-pill on-site';
+      badge.textContent = '⚡ Connected';
+    } else {
+      badge.className = 'status-pill off-site';
+      badge.textContent = 'Disconnected';
+    }
+  },
+
+  saveSupabaseSettings() {
+    const urlInput = document.getElementById('settingSupabaseUrl');
+    const keyInput = document.getElementById('settingSupabaseAnonKey');
+    if (!urlInput || !keyInput) return;
+
+    const url = urlInput.value.trim();
+    const anonKey = keyInput.value.trim();
+
+    if (url && !url.startsWith('http')) {
+      this.showToast('Supabase URL must start with https://', 'warning');
+      return;
+    }
+
+    SupabaseService.saveConfig({
+      url,
+      anonKey,
+      enabled: Boolean(url && anonKey)
+    });
+
+    this.updateSupabaseBadge();
+    if (url && anonKey) {
+      this.showToast('Supabase credentials saved! Testing connection...', 'info');
+      this.testSupabaseConnection();
+    } else {
+      this.showToast('Supabase configuration cleared.', 'info');
+    }
+  },
+
+  async testSupabaseConnection() {
+    const btn = document.getElementById('btnTestSupabase');
+    if (btn) btn.textContent = 'Testing...';
+
+    try {
+      const result = await SupabaseService.testConnection();
+      if (result.success) {
+        this.showToast('✅ Supabase connected & tables verified!', 'success');
+        this.updateSupabaseBadge();
+      } else {
+        this.showToast(result.message, 'error');
+        this.updateSupabaseBadge();
+      }
+    } catch (err) {
+      this.showToast(`Supabase Error: ${err.message}`, 'error');
+    } finally {
+      if (btn) btn.textContent = 'Test Connection';
+    }
+  },
+
+  openSqlModal() {
+    const modal = document.getElementById('sqlSchemaModal');
+    const textarea = document.getElementById('sqlSchemaText');
+    if (textarea) {
+      textarea.value = `-- ==============================================================================
+-- SUPABASE POSTGRESQL SCHEMA FOR CONTRACTOR SITE ATTENDANCE SYSTEM
+-- Copy and paste this script directly into your Supabase SQL Editor and click RUN!
+-- ==============================================================================
+
+-- 1. Create Job Sites Table
+CREATE TABLE IF NOT EXISTS job_sites (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  lat DOUBLE PRECISION NOT NULL,
+  lng DOUBLE PRECISION NOT NULL,
+  radius INTEGER DEFAULT 150,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Create Workers Roster Table
+CREATE TABLE IF NOT EXISTS workers (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  pin TEXT DEFAULT '1111',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Create Attendance Logs Table
+CREATE TABLE IF NOT EXISTS attendance_logs (
+  id TEXT PRIMARY KEY,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  worker_id TEXT,
+  worker_name TEXT NOT NULL,
+  punch_type TEXT NOT NULL,
+  site_id TEXT,
+  site_name TEXT NOT NULL,
+  is_within_geofence BOOLEAN NOT NULL DEFAULT FALSE,
+  distance_meters INTEGER,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  accuracy DOUBLE PRECISION,
+  ip_address TEXT,
+  device_info TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Enable Row Level Security (RLS)
+ALTER TABLE job_sites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_logs ENABLE ROW LEVEL SECURITY;
+
+-- 5. Create Permissive Policies for Field App (Public Anon Access)
+DROP POLICY IF EXISTS "Allow anon all job_sites" ON job_sites;
+DROP POLICY IF EXISTS "Allow anon all workers" ON workers;
+DROP POLICY IF EXISTS "Allow anon all attendance_logs" ON attendance_logs;
+
+CREATE POLICY "Allow anon all job_sites" ON job_sites FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all workers" ON workers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow anon all attendance_logs" ON attendance_logs FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+-- 6. Fast Query Indexes
+CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON attendance_logs (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_logs_worker_name ON attendance_logs (worker_name);
+CREATE INDEX IF NOT EXISTS idx_logs_site_name ON attendance_logs (site_name);`;
+    }
+    if (modal) modal.classList.add('open');
+  },
+
+  closeSqlModal() {
+    const modal = document.getElementById('sqlSchemaModal');
+    if (modal) modal.classList.remove('open');
+  },
+
+  copySqlSchema() {
+    const textarea = document.getElementById('sqlSchemaText');
+    if (!textarea) return;
+    textarea.select();
+    try {
+      navigator.clipboard.writeText(textarea.value);
+      this.showToast('📋 SQL Script copied to clipboard! Paste it into Supabase SQL Editor.', 'success');
+    } catch (e) {
+      document.execCommand('copy');
+      this.showToast('📋 SQL Script copied!', 'success');
+    }
   },
 
   handleUpdateAdminPassword() {

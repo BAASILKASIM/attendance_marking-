@@ -92,12 +92,26 @@ const ApiService = {
       id: 'p_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
       timestamp: new Date().toISOString(),
       ...punchData,
-      syncedToSheet: false
+      syncedToSheet: false,
+      syncedToSupabase: false
     };
 
     records.unshift(newRecord);
     localStorage.setItem(this.PUNCHES_STORAGE_KEY, JSON.stringify(records));
 
+    // 1. Real-Time Cloud Sync: Supabase (PostgreSQL)
+    if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+      try {
+        await SupabaseService.recordPunch(newRecord);
+        newRecord.syncedToSupabase = true;
+        localStorage.setItem(this.PUNCHES_STORAGE_KEY, JSON.stringify(records));
+      } catch (sbErr) {
+        console.warn('Direct Supabase sync failed, queued for background retry:', sbErr);
+        this.enqueueOfflinePunch(newRecord);
+      }
+    }
+
+    // 2. Secondary Cloud Sync: Google Sheets Webhook
     const cfg = this.getConfig();
     const webhookUrl = (cfg.webhookUrl && cfg.webhookUrl.trim()) ? cfg.webhookUrl.trim() : this.DEFAULT_WEBHOOK_URL;
     if (webhookUrl) {
