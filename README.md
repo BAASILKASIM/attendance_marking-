@@ -64,4 +64,4 @@ A 100% free, mobile-first GPS & Geofenced Attendance System designed specificall
 - **Geolocation**: HTML5 Geolocation API with high accuracy mode + Haversine distance formula.
 - **Spreadsheet Generation**: SheetJS (`xlsx.full.min.js`) for client-side `.xlsx` export.
 - **Backend & Storage**: Google Apps Script connected to Google Sheets (0 server maintenance).
-- **Hosting**: GitHub Pages / Netlify / Vercel (100% Free Tier).\n
+- **Hosting**: GitHub Pages / Netlify / Vercel (100% Free Tier).
