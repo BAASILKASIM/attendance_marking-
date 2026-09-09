@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Electrical Site Attendance - GPS & Geofence Tracker</title>
+  <meta name="description" content="Mobile GPS & IP attendance tracking system for electrical contractors with dynamic job sites and Excel export.">
+  <meta name="theme-color" content="#0a0e17">
+  
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  
+  <!-- SheetJS for 100% Client-Side Native Excel (.xlsx / .xls) Generation (Offline local script + CDN fallback) -->
+  <script src="js/xlsx.full.min.js"></script>
+  <script>
+    if (typeof XLSX === 'undefined') {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"><\/script>');
+    }
+  </script>
+  
+  <link rel="stylesheet" href="css/styles.css?v=5">
+</head>
+<body>
+
+  <div class="app-container">
+    
+    <!-- Top Bar -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <div class="brand-info">
+          <h1>Contractor Attendance</h1>
+          <p>Electrical Field Ops</p>
+        </div>
+      </div>
+      
+      <div class="header-right">
+        <div class="header-clock">
+          <div class="time" id="liveClock">--:--:--</div>
+          <div class="date" id="liveDate">Loading...</div>
+        </div>
+        <!-- Small Admin Icon Button in Corner -->
+        <button id="btnAdminTrigger" class="btn-corner-admin" type="button" title="Admin Login (Password Required)">
+          <span class="admin-icon-symbol">🔒</span>
+          <span class="admin-btn-label">Admin</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Admin Mode Banner (Visible only when Admin is logged in) -->
+    <div id="adminModeBanner" class="admin-mode-banner" style="display: none;">
+      <div class="admin-mode-info">
+        <span class="admin-badge-icon">👑</span>
+        <span><strong>Admin Portal Active</strong> (Full Management)</span>
+      </div>
+      <button id="btnAdminLogout" class="btn-sm btn-admin-exit" type="button" title="Lock & Return to Worker Punch Screen">
+        🔒 Exit & Lock
+      </button>
+    </div>
+
+    <!-- Navigation Tabs (Only shown in Admin Mode so workers only see the Punch screen) -->
+    <nav id="mainTabNav" class="tab-navigation admin-nav" style="display: none;">
+      <button class="tab-btn active" data-tab="punch">
+        <span class="tab-icon">⚡</span>
+        <span>Punch</span>
+      </button>
+      <button class="tab-btn" data-tab="logs">
+        <span class="tab-icon">📋</span>
+        <span>Logs</span>
+      </button>
+      <button class="tab-btn" data-tab="sites">
+        <span class="tab-icon">📍</span>
+        <span>Sites</span>
+      </button>
+      <button class="tab-btn" data-tab="workers">
+        <span class="tab-icon">👷</span>
+        <span>Workers</span>
+      </button>
+      <button class="tab-btn" data-tab="settings">
+        <span class="tab-icon">⚙️</span>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <!-- Main Views -->
+    <main class="main-content">
+      
+      <!-- TAB 1: PUNCH ATTENDANCE (Primary Worker Screen) -->
+      <section id="tab-punch" class="tab-content active">
+        
+        <!-- Live Geofence Status Banner -->
+        <div id="geofenceBadge" class="geofence-banner neutral">
+          <div class="badge-icon">📍</div>
+          <div class="badge-body">
+            <strong>Acquiring GPS Location...</strong>
+            <div>Please ensure phone location/GPS is enabled.</div>
+          </div>
+        </div>
+
+        <!-- Worker & Site Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>Punch Attendance</span>
+            <span id="selectedWorkerBadge" class="status-pill" style="display:none;"></span>
+          </div>
+
+          <div class="form-group">
+            <label for="workerSelect">Select Worker / Electrician:</label>
+            <select id="workerSelect" class="form-control">
+              <option value="" disabled selected>-- Select Your Name --</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="punchSiteSelect">Active Job Site:</label>
+            <select id="punchSiteSelect" class="form-control">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+
+          <!-- GPS & Network Telemetry Panel -->
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <div class="label">GPS Status</div>
+              <div class="val"><span id="gpsStatusDot" class="status-dot pulsating-amber"></span><span id="gpsStatusText">Detecting...</span></div>
+            </div>
+            <div class="telemetry-item">
+              <div class="label">GPS Accuracy</div>
+              <div class="val" id="displayAccuracy">--</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="label">Coordinates</div>
+              <div class="val" id="displayCoords">-- , --</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="label">Public IP</div>
+              <div class="val" id="displayIp">Detecting...</div>
+            </div>
+          </div>
+
+          <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+            <button id="btnRefreshGps" class="btn-secondary btn-sm" type="button">
+              🔄 Refresh GPS Lock
+            </button>
+          </div>
+        </div>
+
+        <!-- Action Buttons: Large Touch Targets -->
+        <div class="punch-actions-grid">
+          <button id="btnClockIn" class="btn-punch btn-clock-in" type="button">
+            <span class="punch-icon">☀️</span>
+            <span class="punch-label">Clock In</span>
+            <span class="punch-subtext">Morning / Shift Start</span>
+          </button>
+
+          <button id="btnClockOut" class="btn-punch btn-clock-out" type="button">
+            <span class="punch-icon">🌙</span>
+            <span class="punch-label">Clock Out</span>
+            <span class="punch-subtext">Evening / Shift End</span>
+          </button>
+        </div>
+
+      </section>
+
+      <!-- TAB 2: ATTENDANCE LOG & EXCEL EXPORT (Admin Only) -->
+      <section id="tab-logs" class="tab-content">
+        <div class="card">
+          <div class="card-title">
+            <span>📋 Attendance Records</span>
+            <button class="btn-secondary btn-sm" id="btnClearLogs">Clear Local</button>
+          </div>
+          
+          <div style="margin-bottom: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <button class="btn-export-excel btn-primary btn-block" data-format="xlsx" type="button" title="Download Excel OpenXML (.xlsx)">
+              📊 Export as .xlsx
+            </button>
+            <button class="btn-export-excel btn-secondary btn-block" data-format="xls" type="button" title="Download Excel 97-2004 (.xls)">
+              📑 Export as .xls
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Worker</th>
+                  <th>Type</th>
+                  <th>Site</th>
+                  <th>Status</th>
+                  <th>Map</th>
+                  <th>Cloud</th>
+                </tr>
+              </thead>
+              <tbody id="logsTableBody">
+                <!-- Dynamically generated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: SITES & GEOFENCE SETUP (Admin Only) -->
+      <section id="tab-sites" class="tab-content">
+        
+        <!-- Add New Site Card with 1-Click GPS Lock -->
+        <div class="card card-highlight">
+          <div class="card-title">
+            <span>➕ Register New Job Site</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Stand on the job site and click <strong>"Capture Current GPS"</strong> to auto-fill exact coordinates without typing!
+          </p>
+
+          <form id="formAddSite">
+            <div class="form-group">
+              <label for="newSiteName">Site Name / Project Title:</label>
+              <input type="text" id="newSiteName" class="form-control" placeholder="e.g., Metro Line Substation #4" required>
+            </div>
+
+            <!-- Option A: Paste Google Maps Link (From Home / Anywhere) -->
+            <div class="map-link-importer">
+              <label for="inputGoogleMapsLink" style="font-weight: 700; font-size: 0.82rem; color: #fef3c7; display: flex; align-items: center; justify-content: space-between;">
+                <span>🗺️ Add From Home via Google Maps Link:</span>
+                <span class="badge-feature">⚡ Auto-Pinpoint</span>
+              </label>
+              
+              <div class="input-with-action" style="margin-top: 6px;">
+                <input type="text" id="inputGoogleMapsLink" class="form-control" placeholder="Paste link (e.g., https://maps.app.goo.gl/... or google.com/maps/@...)">
+                <button type="button" id="btnExtractMapLink" class="btn-primary" style="white-space: nowrap; padding: 0 14px; font-size: 0.82rem;">
+                  📍 Pinpoint
+                </button>
+              </div>
+              <small style="color: var(--text-muted); font-size: 0.72rem; margin-top: 4px; display: block;">
+                Paste any link from Google Maps app or browser. Coordinates & site name will be extracted automatically!
+              </small>
+
+              <div id="mapLinkFeedback" class="site-gps-feedback" style="display: none; margin-top: 8px;"></div>
+            </div>
+
+            <div class="divider-text">
+              <span>OR STAND ON SITE WITH PHONE</span>
+            </div>
+
+            <!-- Option B: 1-Click Location Capture Button & Live Feedback -->
+            <div class="gps-capture-container">
+              <button type="button" id="btnCaptureGps" class="btn-capture-gps btn-block">
+                <span id="gpsBtnIcon">🎯</span>
+                <span id="gpsBtnText">Detect & Fill Current Location (Standing on Site)</span>
+              </button>
+              
+              <div id="siteGpsFeedback" class="site-gps-feedback" style="display: none;"></div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+              <div class="form-group">
+                <label for="newSiteLat">Latitude:</label>
+                <input type="number" step="any" id="newSiteLat" class="form-control" placeholder="12.9716" required>
+              </div>
+              <div class="form-group">
+                <label for="newSiteLng">Longitude:</label>
+                <input type="number" step="any" id="newSiteLng" class="form-control" placeholder="77.5946" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="newSiteRadius">Allowed Geofence Radius (meters):</label>
+              <input type="number" id="newSiteRadius" class="form-control" value="150" min="20" max="2000" required>
+              <small style="color: var(--text-muted); font-size: 0.72rem;">Typically 100m - 250m for contractor sites.</small>
+            </div>
+
+            <div class="form-group">
+              <label for="newSiteDesc">Notes / Description:</label>
+              <input type="text" id="newSiteDesc" class="form-control" placeholder="e.g., Conduit and main transformer installation">
+            </div>
+
+            <button type="submit" class="btn-primary btn-block">Save Job Site</button>
+          </form>
+        </div>
+
+        <!-- Active Sites List -->
+        <div class="card">
+          <div class="card-title">
+            <span>📍 Active Job Sites</span>
+          </div>
+          <div id="sitesListContainer">
+            <!-- Dynamic site cards -->
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: WORKER ROSTER MANAGEMENT (Admin Only) -->
+      <section id="tab-workers" class="tab-content">
+        <div class="card">
+          <div class="card-title">
+            <span>👷 Worker / Electrician Roster</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Manage electricians permitted to punch attendance. PIN is optional to avoid buddy-punching.
+          </p>
+          
+          <div id="workersListContainer">
+            <!-- Dynamic list -->
+          </div>
+
+          <form id="formAddWorker" style="margin-top: 16px; border-top: 1px solid var(--border-color); padding-top: 14px;">
+            <h4 style="font-size: 0.9rem; margin-bottom: 10px; color: var(--text-primary);">➕ Add New Employee</h4>
+            <div class="form-group">
+              <label for="newWorkerName">Worker Full Name / Trade:</label>
+              <input type="text" id="newWorkerName" class="form-control" placeholder="e.g., Rajesh Kumar (Wireman)" required>
+            </div>
+            <div class="form-group">
+              <label for="newWorkerPin">Optional 4-Digit PIN:</label>
+              <input type="password" maxlength="6" id="newWorkerPin" class="form-control" placeholder="1234">
+              <small style="color: var(--text-muted); font-size: 0.72rem;">Leave empty if worker does not require a PIN.</small>
+            </div>
+            <button type="submit" class="btn-secondary btn-block">Add Worker to Roster</button>
+          </form>
+        </div>
+      </section>
+
+      <!-- TAB 5: ADMIN SETTINGS & GOOGLE SHEET SYNC (Admin Only) -->
+      <section id="tab-settings" class="tab-content">
+        
+        <!-- Google Sheets Cloud Connection -->
+        <div class="card">
+          <div class="card-title">
+            <span>☁️ Live Google Sheets Sync</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Connect your Google Sheet web app so punches are instantly appended into your cloud spreadsheet.
+          </p>
+
+          <div class="form-group">
+            <label for="settingWebhookUrl">Google Apps Script Web App URL:</label>
+            <input type="url" id="settingWebhookUrl" class="form-control" placeholder="https://script.google.com/macros/s/.../exec">
+            <small style="color: var(--text-muted); font-size: 0.72rem;">
+              See <code>google_apps_script/Code.gs</code> for the 2-minute setup.
+            </small>
+          </div>
+
+          <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button id="btnSaveSettings" class="btn-primary btn-block" type="button">Save Webhook</button>
+            <button id="btnTestWebhook" class="btn-secondary btn-block" type="button">Test Sync</button>
+          </div>
+        </div>
+
+        <!-- Master Admin Password Security -->
+        <div class="card">
+          <div class="card-title">
+            <span>🔒 Admin Master Password</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Change the password used to access this Admin portal and edit sites/workers.
+          </p>
+          <div class="form-group">
+            <label for="settingAdminPassword">New Admin Password:</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="settingAdminPassword" class="form-control" placeholder="Enter new password">
+              <button type="button" id="btnToggleNewPw" class="btn-toggle-pw" title="Show/Hide">👁️</button>
+            </div>
+          </div>
+          <button id="btnUpdateAdminPassword" class="btn-secondary btn-block" type="button">
+            Save New Admin Password
+          </button>
+        </div>
+
+      </section>
+
+    </main>
+
+    
+    <!-- ADMIN AUTHENTICATION MODAL -->
+    <div id="adminAuthModal" class="modal-overlay">
+      <div class="modal-content admin-modal-box">
+        <div style="font-size: 2rem; margin-bottom: 6px;">🔐</div>
+        <h2 class="modal-title" style="font-size: 1.25rem;">Admin Access</h2>
+        <p style="color: var(--text-secondary); font-size: 0.82rem; margin-bottom: 16px;">
+          Enter the Admin Password to access attendance records, manage job sites, and update employees.
+        </p>
+
+        <form id="formAdminAuth" onsubmit="event.preventDefault(); App.submitAdminAuth();">
+          <div class="form-group" style="text-align: left;">
+            <label for="adminAuthPassword">Password:</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="adminAuthPassword" class="form-control" placeholder="Enter admin password" autocomplete="current-password" required>
+              <button type="button" id="btnToggleAdminPw" class="btn-toggle-pw" title="Show/Hide Password">👁️</button>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px;">
+            <button type="button" class="btn-secondary btn-block" onclick="App.closeAdminModal()">Cancel</button>
+            <button type="submit" class="btn-primary btn-block">Unlock Admin</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- WORKER PIN PAD MODAL (Touch-First & Headless Browser Compatible) -->
+    <div id="workerPinModal" class="modal-overlay">
+      <div class="modal-content pin-modal-box">
+        <div style="font-size: 1.5rem; margin-bottom: 4px;">🔒</div>
+        <h2 class="modal-title" style="font-size: 1.15rem;">Enter Worker PIN</h2>
+        <p id="pinWorkerName" style="color: var(--accent-amber); font-size: 0.85rem; font-weight: 600; margin-bottom: 12px;">Worker</p>
+        
+        <!-- PIN Display Dots / Field -->
+        <div class="pin-display-wrapper">
+          <input type="password" id="pinDisplayInput" class="pin-input-field" maxlength="6" placeholder="PIN" readonly>
+        </div>
+
+        <!-- Keypad Grid -->
+        <div class="keypad-grid">
+          <button type="button" class="btn-key" data-num="1">1</button>
+          <button type="button" class="btn-key" data-num="2">2</button>
+          <button type="button" class="btn-key" data-num="3">3</button>
+          <button type="button" class="btn-key" data-num="4">4</button>
+          <button type="button" class="btn-key" data-num="5">5</button>
+          <button type="button" class="btn-key" data-num="6">6</button>
+          <button type="button" class="btn-key" data-num="7">7</button>
+          <button type="button" class="btn-key" data-num="8">8</button>
+          <button type="button" class="btn-key" data-num="9">9</button>
+          <button type="button" class="btn-key btn-key-action" id="btnPinClear">C</button>
+          <button type="button" class="btn-key" data-num="0">0</button>
+          <button type="button" class="btn-key btn-key-action" id="btnPinBackspace">⌫</button>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px;">
+          <button type="button" class="btn-secondary btn-block" id="btnPinCancel">Cancel</button>
+          <button type="button" class="btn-primary btn-block" id="btnPinSubmit">Confirm</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SUCCESS MODAL POPUP -->
+    <div id="punchSuccessModal" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-check-icon">✓</div>
+        <h2 class="modal-title">Attendance Recorded!</h2>
+        
+        <div class="modal-summary">
+          <div><strong>Action:</strong> <span id="modalPunchType">Clock-In</span></div>
+          <div><strong>Worker:</strong> <span id="modalWorkerName">Worker</span></div>
+          <div><strong>Site:</strong> <span id="modalSiteName">Main Site</span></div>
+          <div><strong>Time:</strong> <span id="modalTime">10:00 AM</span></div>
+          <div style="margin-top: 6px;">
+            <span id="modalStatusTag" class="status-pill on-site">On-Site</span>
+          </div>
+          <div id="modalSyncTag" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">
+            Saved locally & syncing...
+          </div>
+        </div>
+
+        <button class="btn-primary btn-block" onclick="App.closeModal()">Done</button>
+      </div>
+    </div>
+
+    <!-- ACTION CONFIRMATION MODAL (Reliable in-app replacement for browser confirm()) -->
+    <div id="actionConfirmModal" class="modal-overlay">
+      <div class="modal-content" style="max-width: 340px; text-align: center;">
+        <div id="confirmModalIcon" style="font-size: 2.2rem; margin-bottom: 8px;">⚠️</div>
+        <h2 id="confirmModalTitle" class="modal-title" style="font-size: 1.15rem; margin-bottom: 6px;">Are you sure?</h2>
+        <p id="confirmModalMessage" style="color: var(--text-secondary); font-size: 0.82rem; margin-bottom: 18px;">
+          This action cannot be undone.
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <button type="button" class="btn-secondary btn-block" id="btnConfirmCancel">Cancel</button>
+          <button type="button" class="btn-danger btn-block" id="btnConfirmOk">Delete</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Core Scripts -->
+  <script src="js/geo.js?v=4"></script>
+  <script src="js/sites.js?v=4"></script>
+  <script src="js/api.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
+</body>
+</html>
