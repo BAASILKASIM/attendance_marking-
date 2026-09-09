@@ -18,6 +18,13 @@ const App = {
   isAdminUnlocked: false,
 
   init() {
+    // Restore admin session if already unlocked in this browser tab
+    try {
+      this.isAdminUnlocked = sessionStorage.getItem('contractor_admin_session_unlocked') === 'true';
+    } catch (e) {
+      this.isAdminUnlocked = false;
+    }
+
     this.bindEvents();
     this.setupPasswordToggles();
     this.updateAdminUiState();
@@ -58,6 +65,18 @@ const App = {
     const btnAdminTrigger = document.getElementById('btnAdminTrigger');
     if (btnAdminTrigger) {
       btnAdminTrigger.addEventListener('click', () => {
+        if (this.isAdminUnlocked) {
+          this.switchTab('logs');
+        } else {
+          this.openAdminModal();
+        }
+      });
+    }
+
+    // Prominent Admin link at bottom of punch screen
+    const btnPunchAdminLink = document.getElementById('btnPunchAdminLink');
+    if (btnPunchAdminLink) {
+      btnPunchAdminLink.addEventListener('click', () => {
         if (this.isAdminUnlocked) {
           this.switchTab('logs');
         } else {
@@ -336,6 +355,45 @@ const App = {
         this.submitPin();
       });
     }
+
+    // Direct Physical Keyboard & Mobile Virtual Keyboard Input for PIN
+    const pinDisplayInput = document.getElementById('pinDisplayInput');
+    if (pinDisplayInput) {
+      pinDisplayInput.addEventListener('input', (e) => {
+        const cleaned = e.target.value.replace(/\D/g, '').slice(0, 6);
+        this.currentPinInput = cleaned;
+        e.target.value = cleaned;
+      });
+      pinDisplayInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.submitPin();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          this.closePinModal();
+        }
+      });
+    }
+
+    // Admin Auth Form explicit submit handler
+    const formAdminAuth = document.getElementById('formAdminAuth');
+    if (formAdminAuth) {
+      formAdminAuth.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.submitAdminAuth();
+      });
+    }
+
+    // Global keyboard shortcuts (Escape key closes any open modal)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this.closeAdminModal();
+        this.closePinModal();
+        this.closeConfirmModal();
+        this.closeSqlModal();
+        this.closeModal();
+      }
+    });
   },
 
   switchTab(tabName) {
@@ -1386,6 +1444,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_site_name ON attendance_logs (site_name);`;
     const pwd = input.value;
     if (ApiService.verifyAdminPassword(pwd)) {
       this.isAdminUnlocked = true;
+      try {
+        sessionStorage.setItem('contractor_admin_session_unlocked', 'true');
+      } catch (e) {}
       this.closeAdminModal();
       this.updateAdminUiState();
       this.switchTab('logs');
@@ -1399,6 +1460,9 @@ CREATE INDEX IF NOT EXISTS idx_logs_site_name ON attendance_logs (site_name);`;
 
   logoutAdmin() {
     this.isAdminUnlocked = false;
+    try {
+      sessionStorage.removeItem('contractor_admin_session_unlocked');
+    } catch (e) {}
     this.updateAdminUiState();
     this.switchTab('punch');
     this.showToast('Admin locked. Returned to worker mode.', 'info');

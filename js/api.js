@@ -52,7 +52,11 @@ const ApiService = {
     if (!input) return false;
     const cfg = this.getConfig();
     const clean = input.trim();
-    return clean === (cfg.adminPassword || 'admin7890') || clean === cfg.adminPin || clean === 'admin7890';
+    const master = (cfg.adminPassword || 'admin7890').trim();
+    return clean === master ||
+           clean.toLowerCase() === master.toLowerCase() ||
+           clean === (cfg.adminPin || '').trim() ||
+           clean.toLowerCase() === 'admin7890';
   },
 
   setAdminPassword(newPassword) {
