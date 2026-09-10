@@ -128,15 +128,20 @@ def load_env_file():
                         k, v = line.split("=", 1)
                         k = k.strip()
                         v = v.strip().strip("'\"")
-                        if k and not os.environ.get(k):
+                        if k and v:
                             os.environ[k] = v
-        except Exception:
-            pass
+                            if k == "SUPABASE_URL":
+                                STATE["supabase_url"] = v
+                            elif k == "SUPABASE_ANON_KEY":
+                                STATE["supabase_anon_key"] = v
+        except Exception as e:
+            print(f"[load_env_file warning] {e}")
 
 load_env_file()
 
 @app.route("/api/health", methods=["GET"])
 def api_health():
+    load_env_file()
     supabase_configured = bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_ANON_KEY"))
     return jsonify({
         "status": "healthy",
@@ -148,6 +153,7 @@ def api_health():
 
 @app.route("/api/config", methods=["GET", "POST"])
 def api_config():
+    load_env_file()
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
         if "adminPassword" in data and str(data["adminPassword"]).strip():
