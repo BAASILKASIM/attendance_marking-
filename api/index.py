@@ -268,8 +268,8 @@ def api_punches():
             is_within = bool(data.get("isWithinGeofence"))
             distance_meters = data.get("distanceMeters")
 
-        # Block punch if outside perimeter and not admin
-        if not is_within and not is_admin_override:
+        # Strict Perimeter Guardrail: Block punch if outside perimeter
+        if not is_within:
             site_name = active_site["name"] if active_site else "the job site"
             radius_str = str(active_site["radius"]) if active_site else "150"
             dist_str = f"{round(distance_meters)}m" if distance_meters is not None else "unknown distance"

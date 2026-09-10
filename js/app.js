@@ -18,7 +18,7 @@ const App = {
   pendingPunchType: null,
   currentPinInput: '',
   audioCtx: null,
-  isAdminUnlocked: false,
+  isAdminUnlocked: true,
   _initialized: false,
   _clockInterval: null,
 
@@ -36,12 +36,8 @@ const App = {
       console.warn('Clock init error:', e);
     }
 
-    // 2. Restore admin session if unlocked
-    try {
-      this.isAdminUnlocked = sessionStorage.getItem('contractor_admin_session_unlocked') === 'true';
-    } catch (e) {
-      this.isAdminUnlocked = false;
-    }
+    // 2. Admin mode permanently unlocked
+    this.isAdminUnlocked = true;
 
     // 3. Bind UI event listeners
     try {
@@ -50,9 +46,8 @@ const App = {
       console.warn('bindEvents error:', e);
     }
 
-    // 4. Setup password toggles & admin navigation state
+    // 4. Update admin navigation state
     try {
-      this.setupPasswordToggles();
       this.updateAdminUiState();
     } catch (e) {
       console.warn('Admin UI state error:', e);
@@ -143,11 +138,7 @@ const App = {
     const btnAdminTrigger = document.getElementById('btnAdminTrigger');
     if (btnAdminTrigger) {
       btnAdminTrigger.addEventListener('click', () => {
-        if (this.isAdminUnlocked) {
-          this.switchTab('logs');
-        } else {
-          this.openAdminModal();
-        }
+        this.switchTab('logs');
       });
     }
 
@@ -155,18 +146,8 @@ const App = {
     const btnPunchAdminLink = document.getElementById('btnPunchAdminLink');
     if (btnPunchAdminLink) {
       btnPunchAdminLink.addEventListener('click', () => {
-        if (this.isAdminUnlocked) {
-          this.switchTab('logs');
-        } else {
-          this.openAdminModal();
-        }
+        this.switchTab('logs');
       });
-    }
-
-    // Admin Logout button
-    const btnAdminLogout = document.getElementById('btnAdminLogout');
-    if (btnAdminLogout) {
-      btnAdminLogout.addEventListener('click', () => this.logoutAdmin());
     }
 
     // Navigation Tabs
@@ -284,25 +265,10 @@ const App = {
       btnSaveSettings.addEventListener('click', () => this.saveAdminSettings());
     }
 
-    // Supabase Settings & Test
-    const btnSaveSupabase = document.getElementById('btnSaveSupabase');
-    if (btnSaveSupabase) {
-      btnSaveSupabase.addEventListener('click', () => this.saveSupabaseSettings());
-    }
+    // Supabase Connection Test
     const btnTestSupabase = document.getElementById('btnTestSupabase');
     if (btnTestSupabase) {
       btnTestSupabase.addEventListener('click', () => this.testSupabaseConnection());
-    }
-    const btnToggleSupabaseKey = document.getElementById('btnToggleSupabaseKey');
-    if (btnToggleSupabaseKey) {
-      btnToggleSupabaseKey.addEventListener('click', () => {
-        const inputKey = document.getElementById('settingSupabaseAnonKey');
-        if (inputKey) {
-          const isPw = inputKey.type === 'password';
-          inputKey.type = isPw ? 'text' : 'password';
-          btnToggleSupabaseKey.textContent = isPw ? '🙈' : '👁️';
-        }
-      });
     }
 
     // SQL Schema Modal
@@ -317,12 +283,6 @@ const App = {
     const btnCopySqlSchema = document.getElementById('btnCopySqlSchema');
     if (btnCopySqlSchema) {
       btnCopySqlSchema.addEventListener('click', () => this.copySqlSchema());
-    }
-
-    // Update Admin Password
-    const btnUpdateAdminPassword = document.getElementById('btnUpdateAdminPassword');
-    if (btnUpdateAdminPassword) {
-      btnUpdateAdminPassword.addEventListener('click', () => this.handleUpdateAdminPassword());
     }
 
     // Test Webhook
@@ -481,9 +441,6 @@ const App = {
   },
 
   switchTab(tabName) {
-    if (!this.isAdminUnlocked && tabName !== 'punch') {
-      tabName = 'punch';
-    }
     this.activeTab = tabName;
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -679,7 +636,7 @@ const App = {
     const subIn = btnClockIn ? btnClockIn.querySelector('.punch-subtext') : null;
     const subOut = btnClockOut ? btnClockOut.querySelector('.punch-subtext') : null;
 
-    if (result.isWithin || this.isAdminUnlocked) {
+    if (result.isWithin) {
       if (btnClockIn) btnClockIn.classList.remove('btn-perimeter-blocked');
       if (btnClockOut) btnClockOut.classList.remove('btn-perimeter-blocked');
       if (subIn) subIn.textContent = 'Morning / Shift Start';
@@ -731,7 +688,7 @@ const App = {
       activeSite.radius
     );
 
-    if (!geofenceCheck.isWithin && !this.isAdminUnlocked) {
+    if (!geofenceCheck.isWithin) {
       this.playChime(false);
       if ('vibrate' in navigator) navigator.vibrate([250, 100, 250]);
       this.showToast(
@@ -819,7 +776,7 @@ const App = {
       );
 
       // Final strict guardrail check before recording
-      if (!geofence.isWithin && !this.isAdminUnlocked) {
+      if (!geofence.isWithin) {
         this.playChime(false);
         if ('vibrate' in navigator) navigator.vibrate([250, 100, 250]);
         this.showToast(
@@ -1088,20 +1045,8 @@ const App = {
   loadSettingsForm() {
     const cfg = ApiService.getConfig();
     const webhookInput = document.getElementById('settingWebhookUrl');
-    const pwdInput = document.getElementById('settingAdminPassword');
-
-    if (webhookInput) webhookInput.value = cfg.webhookUrl || ApiService.DEFAULT_WEBHOOK_URL;
-    if (pwdInput) pwdInput.value = '';
-
-    // Load Supabase Settings
-    if (typeof SupabaseService !== 'undefined') {
-      const sbCfg = SupabaseService.getConfig();
-      const sbUrlInput = document.getElementById('settingSupabaseUrl');
-      const sbKeyInput = document.getElementById('settingSupabaseAnonKey');
-      if (sbUrlInput) sbUrlInput.value = sbCfg.url || '';
-      if (sbKeyInput) sbKeyInput.value = sbCfg.anonKey || '';
-      this.updateSupabaseBadge();
-    }
+    if (webhookInput) webhookInput.value = cfg.webhookUrl || '';
+    this.updateSupabaseBadge();
   },
 
   renderWorkersList() {
@@ -1222,63 +1167,62 @@ const App = {
 
   updateSupabaseBadge() {
     const badge = document.getElementById('supabaseStatusBadge');
-    if (!badge) return;
+    const envText = document.getElementById('supabaseEnvStatusText');
+    const preview = document.getElementById('supabaseEndpointPreview');
+
     if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
-      badge.className = 'status-pill on-site';
-      badge.textContent = '⚡ Connected';
+      const cfg = SupabaseService.getConfig();
+      if (badge) {
+        badge.className = 'status-pill on-site';
+        badge.textContent = '⚡ Connected';
+      }
+      if (envText) {
+        envText.textContent = 'Active (.env / Vercel)';
+        envText.style.color = '#10b981';
+      }
+      if (preview) {
+        preview.textContent = cfg.url ? cfg.url.replace(/^https?:\/\//, '') : 'Connected';
+      }
     } else {
-      badge.className = 'status-pill off-site';
-      badge.textContent = 'Disconnected';
-    }
-  },
-
-  saveSupabaseSettings() {
-    const urlInput = document.getElementById('settingSupabaseUrl');
-    const keyInput = document.getElementById('settingSupabaseAnonKey');
-    if (!urlInput || !keyInput) return;
-
-    const url = urlInput.value.trim();
-    const anonKey = keyInput.value.trim();
-
-    if (url && !url.startsWith('http')) {
-      this.showToast('Supabase URL must start with https://', 'warning');
-      return;
-    }
-
-    SupabaseService.saveConfig({
-      url,
-      anonKey,
-      enabled: Boolean(url && anonKey)
-    });
-
-    // Also notify Python backend so other devices on the network can share
-    if (url && anonKey) {
-      fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ supabaseUrl: url, supabaseAnonKey: anonKey })
-      }).catch(() => {});
-    }
-
-    this.updateSupabaseBadge();
-    if (url && anonKey) {
-      this.showToast('Supabase credentials saved! Testing connection...', 'info');
-      this.testSupabaseConnection();
-    } else {
-      this.showToast('Supabase configuration cleared.', 'info');
+      if (badge) {
+        badge.className = 'status-pill off-site';
+        badge.textContent = 'Disconnected';
+      }
+      if (envText) {
+        envText.textContent = 'Not set in .env / Vercel';
+        envText.style.color = '#f87171';
+      }
+      if (preview) {
+        preview.textContent = 'Add SUPABASE_URL & ANON_KEY to .env';
+      }
     }
   },
 
   async testSupabaseConnection() {
     const btn = document.getElementById('btnTestSupabase');
-    if (btn) btn.textContent = 'Testing...';
+    if (btn) btn.textContent = '🔄 Testing...';
+
+    // First refresh latest credentials from backend environment (.env / Vercel)
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      if (data && data.supabaseUrl && data.supabaseAnonKey) {
+        SupabaseService.saveConfig({
+          url: data.supabaseUrl,
+          anonKey: data.supabaseAnonKey,
+          enabled: true
+        });
+      }
+    } catch (e) {}
+
+    this.updateSupabaseBadge();
 
     try {
       const result = await SupabaseService.testConnection();
       if (result.success) {
-        this.showToast('✅ Supabase connected & tables verified!', 'success');
+        this.showToast('✅ Supabase connected & verified from environment!', 'success');
         this.updateSupabaseBadge();
-        this.syncFromCloud(false);
+        this.syncFromCloud(true);
       } else {
         this.showToast(result.message, 'error');
         this.updateSupabaseBadge();
@@ -1286,7 +1230,7 @@ const App = {
     } catch (err) {
       this.showToast(`Supabase Error: ${err.message}`, 'error');
     } finally {
-      if (btn) btn.textContent = 'Test Connection';
+      if (btn) btn.textContent = '🔄 Test Connection & Sync';
     }
   },
 
@@ -1627,91 +1571,20 @@ CREATE INDEX IF NOT EXISTS idx_logs_site_name ON attendance_logs (site_name);`;
     }
   },
 
-  // Admin Modal & Access Control
+  // Admin Navigation State
   openAdminModal() {
-    const modal = document.getElementById('adminAuthModal');
-    const input = document.getElementById('adminAuthPassword');
-    if (input) input.value = '';
-    if (modal) modal.classList.add('open');
-    setTimeout(() => { if (input) input.focus(); }, 150);
+    this.switchTab('logs');
   },
 
-  closeAdminModal() {
-    const modal = document.getElementById('adminAuthModal');
-    if (modal) modal.classList.remove('open');
-  },
-
-  submitAdminAuth() {
-    const input = document.getElementById('adminAuthPassword');
-    if (!input) return;
-    const pwd = input.value;
-    if (ApiService.verifyAdminPassword(pwd)) {
-      this.isAdminUnlocked = true;
-      try {
-        sessionStorage.setItem('contractor_admin_session_unlocked', 'true');
-      } catch (e) {}
-      this.closeAdminModal();
-      this.updateAdminUiState();
-      this.switchTab('logs');
-      this.showToast('👑 Admin mode unlocked! Full access granted.', 'success');
-    } else {
-      this.showToast('Incorrect Admin Password. Access denied.', 'error');
-      input.value = '';
-      input.focus();
-    }
-  },
-
-  logoutAdmin() {
-    this.isAdminUnlocked = false;
-    try {
-      sessionStorage.removeItem('contractor_admin_session_unlocked');
-    } catch (e) {}
-    this.updateAdminUiState();
-    this.switchTab('punch');
-    this.showToast('Admin locked. Returned to worker mode.', 'info');
-  },
+  closeAdminModal() {},
 
   updateAdminUiState() {
     const nav = document.getElementById('mainTabNav');
-    const banner = document.getElementById('adminModeBanner');
+    if (nav) nav.style.display = 'grid';
     const btnTrigger = document.getElementById('btnAdminTrigger');
-
-    if (this.isAdminUnlocked) {
-      if (nav) nav.style.display = 'grid';
-      if (banner) banner.style.display = 'flex';
-      if (btnTrigger) {
-        btnTrigger.classList.add('active');
-        btnTrigger.innerHTML = '<span class="admin-icon-symbol">🔓</span> <span class="admin-btn-label">Unlocked</span>';
-      }
-    } else {
-      if (nav) nav.style.display = 'none';
-      if (banner) banner.style.display = 'none';
-      if (btnTrigger) {
-        btnTrigger.classList.remove('active');
-        btnTrigger.innerHTML = '<span class="admin-icon-symbol">🔒</span> <span class="admin-btn-label">Admin</span>';
-      }
-    }
-  },
-
-  setupPasswordToggles() {
-    const btnToggleAuth = document.getElementById('btnToggleAdminPw');
-    const inputAuth = document.getElementById('adminAuthPassword');
-    if (btnToggleAuth && inputAuth) {
-      btnToggleAuth.addEventListener('click', () => {
-        const isPassword = inputAuth.type === 'password';
-        inputAuth.type = isPassword ? 'text' : 'password';
-        btnToggleAuth.textContent = isPassword ? '🙈' : '👁️';
-      });
-    }
-
-    const btnToggleNew = document.getElementById('btnToggleNewPw');
-    const inputNew = document.getElementById('settingAdminPassword');
-    if (btnToggleNew && inputNew) {
-      btnToggleNew.addEventListener('click', () => {
-        const isPassword = inputNew.type === 'password';
-        inputNew.type = isPassword ? 'text' : 'password';
-        btnToggleNew.textContent = isPassword ? '🙈' : '👁️';
-      });
+    if (btnTrigger) {
+      btnTrigger.classList.add('active');
+      btnTrigger.innerHTML = '<span class="admin-icon-symbol">⚙️</span> <span class="admin-btn-label">Admin</span>';
     }
   },
 
