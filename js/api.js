@@ -152,33 +152,70 @@ const ApiService = {
   enqueueOfflinePunch(punch) {
     try {
       const queue = JSON.parse(localStorage.getItem(this.PENDING_QUEUE_KEY) || '[]');
-      queue.push(punch);
-      localStorage.setItem(this.PENDING_QUEUE_KEY, JSON.stringify(queue));
+      const exists = queue.some(p => p.id === punch.id);
+      if (!exists) {
+        queue.push(punch);
+        localStorage.setItem(this.PENDING_QUEUE_KEY, JSON.stringify(queue));
+      }
     } catch (e) {
-      console.error(e);
+      console.error('Enqueue offline punch error:', e);
     }
   },
 
   async flushOfflineQueue() {
-    const cfg = this.getConfig();
-    const webhookUrl = (cfg.webhookUrl && cfg.webhookUrl.trim()) ? cfg.webhookUrl.trim() : this.DEFAULT_WEBHOOK_URL;
-    if (!webhookUrl) return;
-
     try {
       const queue = JSON.parse(localStorage.getItem(this.PENDING_QUEUE_KEY) || '[]');
       if (queue.length === 0) return;
 
+      const cfg = this.getConfig();
+      const webhookUrl = (cfg.webhookUrl && cfg.webhookUrl.trim()) ? cfg.webhookUrl.trim() : this.DEFAULT_WEBHOOK_URL;
+      const records = this.getLocalPunches();
+      let updatedLocal = false;
+
       const remaining = [];
       for (const item of queue) {
-        try {
-          await this.syncPunchToGoogleSheet(item, webhookUrl);
-        } catch (e) {
+        let allSynced = true;
+
+        // 1. Retry Supabase if configured & pending
+        if (!item.syncedToSupabase && typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+          try {
+            await SupabaseService.recordPunch(item);
+            item.syncedToSupabase = true;
+            const rec = records.find(r => r.id === item.id);
+            if (rec) rec.syncedToSupabase = true;
+            updatedLocal = true;
+          } catch (sbErr) {
+            allSynced = false;
+          }
+        }
+
+        // 2. Retry Google Sheet if webhook configured & pending
+        if (!item.syncedToSheet && webhookUrl) {
+          try {
+            await this.syncPunchToGoogleSheet(item, webhookUrl);
+            item.syncedToSheet = true;
+            const rec = records.find(r => r.id === item.id);
+            if (rec) rec.syncedToSheet = true;
+            updatedLocal = true;
+          } catch (gsErr) {
+            allSynced = false;
+          }
+        }
+
+        if (!allSynced) {
           remaining.push(item);
         }
       }
+
       localStorage.setItem(this.PENDING_QUEUE_KEY, JSON.stringify(remaining));
+      if (updatedLocal) {
+        localStorage.setItem(this.PUNCHES_STORAGE_KEY, JSON.stringify(records));
+        if (window.App && typeof window.App.renderLogsTable === 'function') {
+          window.App.renderLogsTable();
+        }
+      }
       if (remaining.length === 0) {
-        console.log('All pending offline punches synced to Google Sheet!');
+        console.log('All pending offline punches synced successfully!');
       }
     } catch (e) {
       console.error('Queue flush error', e);

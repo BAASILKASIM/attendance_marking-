@@ -160,10 +160,34 @@ const SupabaseService = {
     }
   },
 
+  normalizeLog(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      timestamp: row.timestamp || row.created_at || new Date().toISOString(),
+      workerId: row.worker_id || row.workerId || '',
+      workerName: row.worker_name || row.workerName || 'Unknown Worker',
+      punchType: row.punch_type || row.punchType || 'Clock-In',
+      siteId: row.site_id || row.siteId || '',
+      siteName: row.site_name || row.siteName || 'Unassigned',
+      isWithinGeofence: row.is_within_geofence !== undefined ? Boolean(row.is_within_geofence) : Boolean(row.isWithinGeofence),
+      distanceMeters: (row.distance_meters !== undefined && row.distance_meters !== null) ? Number(row.distance_meters) : (row.distanceMeters !== undefined ? Number(row.distanceMeters) : null),
+      latitude: row.latitude ? parseFloat(row.latitude) : null,
+      longitude: row.longitude ? parseFloat(row.longitude) : null,
+      accuracy: row.accuracy ? parseFloat(row.accuracy) : null,
+      ipAddress: row.ip_address || row.ipAddress || '',
+      deviceInfo: row.device_info || row.deviceInfo || '',
+      notes: row.notes || '',
+      syncedToSupabase: true,
+      syncedToSheet: Boolean(row.syncedToSheet)
+    };
+  },
+
   async fetchLogs(limit = 100) {
     if (!this.isConfigured()) return [];
 
     try {
+      let rows = [];
       if (this.client) {
         const { data, error } = await this.client
           .from('attendance_logs')
@@ -171,10 +195,11 @@ const SupabaseService = {
           .order('timestamp', { ascending: false })
           .limit(limit);
         if (error) throw error;
-        return data;
+        rows = data || [];
       } else {
-        return await this.restFetch(`attendance_logs?select=*&order=timestamp.desc&limit=${limit}`);
+        rows = await this.restFetch(`attendance_logs?select=*&order=timestamp.desc&limit=${limit}`) || [];
       }
+      return rows.map(r => this.normalizeLog(r)).filter(Boolean);
     } catch (err) {
       console.warn('Supabase fetchLogs error:', err);
       return [];
@@ -189,13 +214,22 @@ const SupabaseService = {
     if (!this.isConfigured()) return [];
 
     try {
+      let rows = [];
       if (this.client) {
         const { data, error } = await this.client.from('job_sites').select('*').order('created_at', { ascending: true });
         if (error) throw error;
-        return data;
+        rows = data || [];
       } else {
-        return await this.restFetch('job_sites?select=*&order=created_at.asc');
+        rows = await this.restFetch('job_sites?select=*&order=created_at.asc') || [];
       }
+      return rows.map(s => ({
+        id: String(s.id),
+        name: String(s.name),
+        lat: parseFloat(s.lat),
+        lng: parseFloat(s.lng),
+        radius: parseInt(s.radius, 10) || 150,
+        description: s.description || ''
+      }));
     } catch (err) {
       console.warn('Supabase fetchSites error:', err);
       return [];
@@ -208,9 +242,10 @@ const SupabaseService = {
     const row = {
       id: site.id,
       name: site.name,
-      lat: site.lat,
-      lng: site.lng,
-      radius: site.radius || 150
+      lat: parseFloat(site.lat),
+      lng: parseFloat(site.lng),
+      radius: parseInt(site.radius, 10) || 150,
+      description: site.description || ''
     };
 
     try {

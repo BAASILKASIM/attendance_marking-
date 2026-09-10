@@ -1238,7 +1238,11 @@ select.form-control {
             </div>
           </div>
 
-          <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+          <div style="margin-top: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <label style="font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="toggleGpsSimulation" style="accent-color: var(--accent-amber); cursor: pointer;">
+              <span>🧪 Test On-Site (Simulate GPS)</span>
+            </label>
             <button id="btnRefreshGps" class="btn-secondary btn-sm" type="button">
               🔄 Refresh GPS Lock
             </button>
@@ -1275,7 +1279,10 @@ select.form-control {
         <div class="card">
           <div class="card-title">
             <span>📋 Attendance Records</span>
-            <button class="btn-secondary btn-sm" id="btnClearLogs">Clear Local</button>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn-secondary btn-sm" id="btnSyncCloudLogs" type="button" title="Sync latest records from Supabase Cloud">🔄 Cloud Sync</button>
+              <button class="btn-secondary btn-sm" id="btnClearLogs" type="button">Clear Local</button>
+            </div>
           </div>
           
           <div style="margin-bottom: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -1641,10 +1648,10 @@ select.form-control {
   </div>
 
   <!-- Core Scripts -->
-  <script src="js/geo.js?v=4"></script>
-  <script src="js/sites.js?v=4"></script>
-  <script src="js/supabase.js?v=1"></script>
-  <script src="js/api.js?v=4"></script>
-  <script src="js/app.js?v=4"></script>
+  <script src="js/geo.js?v=5"></script>
+  <script src="js/sites.js?v=5"></script>
+  <script src="js/supabase.js?v=5"></script>
+  <script src="js/api.js?v=5"></script>
+  <script src="js/app.js?v=5"></script>
 </body>
 </html>

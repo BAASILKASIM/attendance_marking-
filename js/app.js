@@ -52,12 +52,19 @@ const App = {
     window.addEventListener('online', () => {
       this.showToast('Online connection restored. Syncing pending punches...', 'success');
       ApiService.flushOfflineQueue();
+      this.syncFromCloud(false);
     });
 
     // Register Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW registration error:', err));
     }
+
+    // Auto-sync cloud data in background on load
+    setTimeout(() => {
+      this.syncFromCloud(false);
+      ApiService.flushOfflineQueue();
+    }, 1200);
   },
 
   bindEvents() {
@@ -125,6 +132,12 @@ const App = {
     // Refresh GPS button
     const btnRefreshGps = document.getElementById('btnRefreshGps');
     if (btnRefreshGps) btnRefreshGps.addEventListener('click', () => this.refreshGpsLocation());
+
+    // Sync Cloud Logs button in Attendance Records
+    const btnSyncCloudLogs = document.getElementById('btnSyncCloudLogs');
+    if (btnSyncCloudLogs) {
+      btnSyncCloudLogs.addEventListener('click', () => this.syncFromCloud(true));
+    }
 
     // Export to Excel buttons (.xlsx and .xls formats)
     document.querySelectorAll('.btn-export-excel').forEach(btn => {
@@ -410,10 +423,19 @@ const App = {
 
     if (tabName === 'logs') {
       this.renderLogsTable();
+      if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+        this.syncFromCloud(false);
+      }
     } else if (tabName === 'sites') {
       this.renderSitesList();
+      if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+        this.syncFromCloud(false);
+      }
     } else if (tabName === 'workers') {
       this.renderWorkersList();
+      if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+        this.syncFromCloud(false);
+      }
     } else if (tabName === 'settings') {
       this.loadSettingsForm();
     } else if (tabName === 'punch') {
@@ -872,6 +894,9 @@ const App = {
       onConfirm: () => {
         try {
           SiteManager.deleteSite(id);
+          if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+            SupabaseService.deleteSite(id).catch(err => console.warn('Supabase site delete error:', err));
+          }
           this.loadSites();
           this.renderSitesList();
           this.showToast(`Job site "${siteName}" deleted.`, 'info');
@@ -894,7 +919,10 @@ const App = {
       return;
     }
 
-    SiteManager.addSite({ name, lat, lng, radius, description: desc });
+    const newSite = SiteManager.addSite({ name, lat, lng, radius, description: desc });
+    if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+      SupabaseService.saveSite(newSite).catch(err => console.warn('Supabase site sync error:', err));
+    }
     this.loadSites();
     this.renderSitesList();
     document.getElementById('formAddSite').reset();
@@ -960,8 +988,12 @@ const App = {
       message: `Are you sure you want to remove "${workerName}" from the roster?`,
       okText: 'Remove',
       onConfirm: () => {
-        cfg.workers = cfg.workers.filter(w => w.id !== id);
+        const idToDelete = id;
+        cfg.workers = cfg.workers.filter(w => w.id !== idToDelete);
         ApiService.saveConfig(cfg);
+        if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+          SupabaseService.deleteWorker(idToDelete).catch(err => console.warn('Supabase deleteWorker error:', err));
+        }
         this.loadWorkers();
         this.renderWorkersList();
         this.showToast(`Worker "${workerName}" removed from roster.`, 'info');
@@ -1003,13 +1035,17 @@ const App = {
     }
 
     const cfg = ApiService.getConfig();
-    cfg.workers.push({
+    const newWorker = {
       id: 'w_' + Date.now(),
       name: nameInput.value.trim(),
       pin: pinInput ? pinInput.value.trim() : ''
-    });
+    };
+    cfg.workers.push(newWorker);
 
     ApiService.saveConfig(cfg);
+    if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
+      SupabaseService.saveWorker(newWorker).catch(err => console.warn('Supabase saveWorker error:', err));
+    }
     this.loadWorkers();
     this.renderWorkersList();
     const addedName = nameInput.value.trim();
@@ -1077,6 +1113,7 @@ const App = {
       if (result.success) {
         this.showToast('✅ Supabase connected & tables verified!', 'success');
         this.updateSupabaseBadge();
+        this.syncFromCloud(false);
       } else {
         this.showToast(result.message, 'error');
         this.updateSupabaseBadge();
@@ -1104,6 +1141,7 @@ CREATE TABLE IF NOT EXISTS job_sites (
   lat DOUBLE PRECISION NOT NULL,
   lng DOUBLE PRECISION NOT NULL,
   radius INTEGER DEFAULT 150,
+  description TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -1565,7 +1603,68 @@ CREATE INDEX IF NOT EXISTS idx_logs_site_name ON attendance_logs (site_name);`;
       toast.classList.add('fade-out');
       setTimeout(() => toast.remove(), 400);
     }, 4000);
+  },
+
+  // Multi-Device Cloud Sync for Sites, Workers & Logs
+  async syncFromCloud(showFeedback = false) {
+    if (typeof SupabaseService === 'undefined' || !SupabaseService.isConfigured()) return;
+
+    try {
+      // 1. Sync Sites from Supabase
+      const cloudSites = await SupabaseService.fetchSites();
+      if (cloudSites && cloudSites.length > 0) {
+        const localSites = SiteManager.getSites();
+        const siteMap = new Map();
+        localSites.forEach(s => siteMap.set(s.id, s));
+        cloudSites.forEach(s => siteMap.set(s.id, s));
+        SiteManager.saveSites(Array.from(siteMap.values()));
+        this.loadSites();
+        if (this.activeTab === 'sites') this.renderSitesList();
+      }
+
+      // 2. Sync Workers from Supabase
+      const cloudWorkers = await SupabaseService.fetchWorkers();
+      if (cloudWorkers && cloudWorkers.length > 0) {
+        const cfg = ApiService.getConfig();
+        const workerMap = new Map();
+        (cfg.workers || []).forEach(w => workerMap.set(w.id, w));
+        cloudWorkers.forEach(w => workerMap.set(w.id, { id: w.id, name: w.name, pin: w.pin || '' }));
+        cfg.workers = Array.from(workerMap.values());
+        ApiService.saveConfig(cfg);
+        this.loadWorkers();
+        if (this.activeTab === 'workers') this.renderWorkersList();
+      }
+
+      // 3. Sync Attendance Logs from Supabase
+      const cloudLogs = await SupabaseService.fetchLogs(150);
+      if (cloudLogs && cloudLogs.length > 0) {
+        const localLogs = ApiService.getLocalPunches();
+        const logMap = new Map();
+        cloudLogs.forEach(l => logMap.set(l.id, l));
+        localLogs.forEach(l => {
+          if (logMap.has(l.id)) {
+            const existing = logMap.get(l.id);
+            logMap.set(l.id, { ...existing, syncedToSupabase: true });
+          } else {
+            logMap.set(l.id, l);
+          }
+        });
+        const merged = Array.from(logMap.values()).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        localStorage.setItem(ApiService.PUNCHES_STORAGE_KEY, JSON.stringify(merged));
+        if (this.activeTab === 'logs') this.renderLogsTable();
+      }
+
+      if (showFeedback) {
+        this.showToast('✅ Synced latest records from Supabase cloud!', 'success');
+      }
+    } catch (err) {
+      console.warn('Cloud sync error:', err);
+      if (showFeedback) {
+        this.showToast(`Cloud sync error: ${err.message}`, 'error');
+      }
+    }
   }
 };
 
 window.App = App;
+

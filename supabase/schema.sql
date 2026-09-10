@@ -10,12 +10,16 @@ CREATE TABLE IF NOT EXISTS job_sites (
   lat DOUBLE PRECISION NOT NULL,
   lng DOUBLE PRECISION NOT NULL,
   radius INTEGER DEFAULT 150,
+  description TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure description column exists if upgrading existing table
+ALTER TABLE job_sites ADD COLUMN IF NOT EXISTS description TEXT;
+
 -- Insert default site if table is empty
-INSERT INTO job_sites (id, name, lat, lng, radius)
-VALUES ('site-1', 'Main Workshop / Office', 12.9716, 77.5946, 150)
+INSERT INTO job_sites (id, name, lat, lng, radius, description)
+VALUES ('site-1', 'Main Workshop / Office', 12.9716, 77.5946, 150, 'Headquarters & workshop')
 ON CONFLICT (id) DO NOTHING;
 
 -- 2. Create Workers Roster Table

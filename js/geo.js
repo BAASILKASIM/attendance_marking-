@@ -127,6 +127,7 @@ const GeoEngine = {
 
     this.watchId = navigator.geolocation.watchPosition(
       (pos) => {
+        if (this.simulatedCoords) return;
         this.currentPosition = {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
