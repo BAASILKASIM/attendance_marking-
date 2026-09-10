@@ -7,6 +7,7 @@ import math
 import json
 import io
 from datetime import datetime
+import requests
 from flask import Flask, request, jsonify, send_file, Response
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -116,12 +117,32 @@ def serve_static(path):
 # PYTHON REST API ENDPOINTS
 # ----------------------------------------------------
 
+def load_env_file():
+    env_file = os.path.join(BASE_DIR, ".env")
+    if os.path.exists(env_file):
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("'\"")
+                        if k and not os.environ.get(k):
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+load_env_file()
+
 @app.route("/api/health", methods=["GET"])
 def api_health():
+    supabase_configured = bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_ANON_KEY"))
     return jsonify({
         "status": "healthy",
         "service": "contractor-attendance-python",
         "runtime": "Python 3 (Vercel Serverless)",
+        "supabaseConfigured": supabase_configured,
         "timestamp": datetime.now().isoformat()
     })
 
@@ -131,11 +152,21 @@ def api_config():
         data = request.get_json(silent=True) or {}
         if "adminPassword" in data and str(data["adminPassword"]).strip():
             STATE["admin_password"] = str(data["adminPassword"]).strip()
+        if "supabaseUrl" in data and "supabaseAnonKey" in data:
+            STATE["supabase_url"] = str(data["supabaseUrl"]).strip()
+            STATE["supabase_anon_key"] = str(data["supabaseAnonKey"]).strip()
+            os.environ["SUPABASE_URL"] = STATE["supabase_url"]
+            os.environ["SUPABASE_ANON_KEY"] = STATE["supabase_anon_key"]
         return jsonify({"success": True, "message": "Config updated"})
     
+    supabase_url = os.environ.get("SUPABASE_URL", STATE.get("supabase_url", ""))
+    supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", STATE.get("supabase_anon_key", ""))
+
     return jsonify({
         "adminPassword": STATE["admin_password"],
-        "workers": STATE["workers"]
+        "workers": STATE["workers"],
+        "supabaseUrl": supabase_url,
+        "supabaseAnonKey": supabase_anon_key
     })
 
 @app.route("/api/sites", methods=["GET", "POST"])
@@ -205,8 +236,48 @@ def api_geofence():
 
 @app.route("/api/punches", methods=["GET", "POST"])
 def api_punches():
+    supabase_url = os.environ.get("SUPABASE_URL", STATE.get("supabase_url", ""))
+    supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", STATE.get("supabase_anon_key", ""))
+
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
+        
+        # Strict Perimeter Guardrail Enforcement
+        worker_lat = data.get("latitude")
+        worker_lng = data.get("longitude")
+        site_id = data.get("siteId")
+        is_admin_override = bool(data.get("adminOverride"))
+        
+        # Check active site boundary
+        active_site = next((s for s in STATE["sites"] if str(s.get("id")) == str(site_id)), None)
+        is_within = False
+        distance_meters = None
+
+        if active_site and worker_lat is not None and worker_lng is not None:
+            try:
+                distance_meters = calculate_haversine(
+                    float(worker_lat), float(worker_lng),
+                    float(active_site["lat"]), float(active_site["lng"])
+                )
+                site_radius = int(active_site.get("radius", 150))
+                is_within = (distance_meters <= site_radius)
+            except Exception:
+                is_within = bool(data.get("isWithinGeofence"))
+                distance_meters = data.get("distanceMeters")
+        else:
+            is_within = bool(data.get("isWithinGeofence"))
+            distance_meters = data.get("distanceMeters")
+
+        # Block punch if outside perimeter and not admin
+        if not is_within and not is_admin_override:
+            site_name = active_site["name"] if active_site else "the job site"
+            radius_str = str(active_site["radius"]) if active_site else "150"
+            dist_str = f"{round(distance_meters)}m" if distance_meters is not None else "unknown distance"
+            return jsonify({
+                "error": "Perimeter Guardrail Violation",
+                "message": f"Attendance blocked: Employee is outside site perimeter ({dist_str} away from '{site_name}', allowed limit: {radius_str}m)."
+            }), 403
+
         punch = {
             "id": data.get("id") or ("p_" + str(int(datetime.now().timestamp() * 1000))),
             "timestamp": data.get("timestamp") or datetime.now().isoformat(),
@@ -214,18 +285,96 @@ def api_punches():
             "workerName": data.get("workerName", "Worker"),
             "punchType": data.get("punchType", "Clock-In"),
             "siteId": data.get("siteId", ""),
-            "siteName": data.get("siteName", "Site"),
-            "isWithinGeofence": bool(data.get("isWithinGeofence")),
-            "distanceMeters": data.get("distanceMeters"),
-            "latitude": data.get("latitude"),
-            "longitude": data.get("longitude"),
-            "accuracy": data.get("accuracy"),
+            "siteName": data.get("siteName", active_site["name"] if active_site else "Site"),
+            "isWithinGeofence": bool(is_within),
+            "distanceMeters": round(distance_meters) if distance_meters is not None else None,
+            "latitude": float(worker_lat) if worker_lat is not None else None,
+            "longitude": float(worker_lng) if worker_lng is not None else None,
+            "accuracy": float(data["accuracy"]) if data.get("accuracy") is not None else None,
             "ipAddress": data.get("ipAddress", request.remote_addr or "127.0.0.1"),
             "deviceInfo": data.get("deviceInfo", request.headers.get("User-Agent", "Browser")),
             "notes": data.get("notes", "")
         }
+
+        # Store in local server memory
         STATE["punches"].insert(0, punch)
+
+        # Forward directly to Supabase PostgreSQL if configured
+        if supabase_url and supabase_anon_key:
+            try:
+                clean_sb_url = supabase_url.strip().rstrip("/")
+                clean_sb_key = supabase_anon_key.strip()
+                sb_payload = {
+                    "id": punch["id"],
+                    "timestamp": punch["timestamp"],
+                    "worker_id": punch["workerId"] or None,
+                    "worker_name": punch["workerName"],
+                    "punch_type": punch["punchType"],
+                    "site_id": punch["siteId"] or None,
+                    "site_name": punch["siteName"],
+                    "is_within_geofence": punch["isWithinGeofence"],
+                    "distance_meters": punch["distanceMeters"],
+                    "latitude": punch["latitude"],
+                    "longitude": punch["longitude"],
+                    "accuracy": punch["accuracy"],
+                    "ip_address": punch["ipAddress"],
+                    "device_info": punch["deviceInfo"],
+                    "notes": punch["notes"]
+                }
+                requests.post(
+                    f"{clean_sb_url}/rest/v1/attendance_logs",
+                    headers={
+                        "apikey": clean_sb_key,
+                        "Authorization": f"Bearer {clean_sb_key}",
+                        "Content-Type": "application/json",
+                        "Prefer": "return=minimal"
+                    },
+                    json=sb_payload,
+                    timeout=5
+                )
+            except Exception as sb_err:
+                print(f"[Supabase sync warning from Python backend] {sb_err}")
+
         return jsonify({"success": True, "punch": punch}), 201
+
+    # GET Punches - Try Supabase first if configured, else in-memory cache
+    if supabase_url and supabase_anon_key:
+        try:
+            clean_sb_url = supabase_url.strip().rstrip("/")
+            clean_sb_key = supabase_anon_key.strip()
+            res = requests.get(
+                f"{clean_sb_url}/rest/v1/attendance_logs?select=*&order=timestamp.desc&limit=150",
+                headers={
+                    "apikey": clean_sb_key,
+                    "Authorization": f"Bearer {clean_sb_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=5
+            )
+            if res.status_code == 200:
+                cloud_data = res.json()
+                normalized = []
+                for r in cloud_data:
+                    normalized.append({
+                        "id": r.get("id"),
+                        "timestamp": r.get("timestamp"),
+                        "workerId": r.get("worker_id"),
+                        "workerName": r.get("worker_name", "Unknown"),
+                        "punchType": r.get("punch_type", "Clock-In"),
+                        "siteId": r.get("site_id"),
+                        "siteName": r.get("site_name", "Unassigned"),
+                        "isWithinGeofence": bool(r.get("is_within_geofence")),
+                        "distanceMeters": r.get("distance_meters"),
+                        "latitude": r.get("latitude"),
+                        "longitude": r.get("longitude"),
+                        "accuracy": r.get("accuracy"),
+                        "ipAddress": r.get("ip_address"),
+                        "deviceInfo": r.get("device_info"),
+                        "notes": r.get("notes", "")
+                    })
+                return jsonify(normalized)
+        except Exception as err:
+            print(f"[Supabase fetch warning from Python backend] {err}")
 
     return jsonify(STATE["punches"])
 

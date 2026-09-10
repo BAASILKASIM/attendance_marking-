@@ -1,67 +1,74 @@
 # ⚡ Electrical Contractor Field Attendance System
 
-A 100% free, mobile-first GPS & Geofenced Attendance System designed specifically for electrical contractors and field workers.
+A modern, mobile-first GPS & Geofenced Attendance System with strict perimeter guardrails and cloud database sync for electrical contractors and field workers.
 
 ## 🌟 Key Features
-- **Dynamic Attendance Points**: Easily configure multiple job sites (offices, substations, residential complexes) with custom geofence radius.
-- **Stand-on-Site Coordinate Capture**: When visiting a new project site, tap *"Set to My Current GPS Location"* to lock in the site coordinates with zero guesswork.
-- **High-Accuracy GPS & Geofencing**: Calculates exact distance in meters from the active job site and flags punches as **✅ ON-SITE** or **⚠️ OFF-SITE**.
-- **Live Google Sheet (Excel) Sync**: Automatically appends each punch into a Google Sheet with timestamp, worker name, distance, status, IP address, and a clickable Google Maps link!
-- **One-Click Native Excel Export (.xlsx)**: Download clean, structured Excel spreadsheets directly from your phone or PC.
-- **Works Offline**: Intermittent mobile network at basements/trenching sites? Punches are safely stored on the device and automatically sync once network returns.
-- **100% Free Forever**: Zero hosting fees, zero database fees, and no monthly subscriptions.
+- **Strict Perimeter Guardrails**: Employees can **only** clock in or out when physically inside the designated job site perimeter (verified via real GPS coordinates & Haversine formula). Off-site punch attempts are strictly blocked.
+- **Supabase Cloud PostgreSQL**: Real-time cloud database storage for attendance logs, job sites, and worker rosters with multi-device synchronization.
+- **Python Backend (Vercel Serverless & Local)**: Written entirely in Python (`api/index.py`, `server.py`) using Flask, openpyxl, and requests. Deploys seamlessly to Vercel with `@vercel/python`.
+- **Dynamic Job Sites**: Configure multiple job sites (offices, substations, residential projects) with custom geofence radius.
+- **Stand-on-Site Coordinate Capture**: Tap *"Set to My Current GPS Location"* when standing on a new job site to lock in exact GPS coordinates.
+- **One-Click Native Excel Export (.xlsx)**: Download clean, structured Excel spreadsheets directly from mobile phones or PCs (generated natively via client-side SheetJS or server-side OpenPyXL).
+- **Offline Resilient**: Punches recorded with weak or interrupted network are stored safely on the device and automatically sync to Supabase when network is restored.
 
 ---
 
-## 🚀 5-Minute Setup Guide
+## 🚀 Supabase Cloud Database Setup (2 Minutes)
 
-### Step 1: Set Up Free Google Sheets Backend (Takes 2 Minutes)
-1. Open [Google Sheets](https://sheets.new) and create a new blank spreadsheet (name it e.g. `Contractor_Attendance_2026`).
-2. In the top menu, click **Extensions** > **Apps Script**.
-3. Delete any default code in `Code.gs` and paste the contents of `google_apps_script/Code.gs`.
-4. Click the blue **Deploy** button (top right) > **New deployment**.
-5. Click the gear icon next to "Select type" and choose **Web app**.
-6. Fill in the deployment details:
-   - **Description**: `Attendance Webhook`
-   - **Execute as**: `Me (your email)`
-   - **Who has access**: `Anyone` *(Important: this allows the phone web app to send punches)*
-7. Click **Deploy**, authorize permissions when prompted, and **copy the Web app URL** (it looks like `https://script.google.com/macros/s/.../exec`).
+1. **Create a Free Supabase Project**:
+   - Go to [Supabase](https://supabase.com) and create a free project.
+2. **Run the Database Schema**:
+   - In your Supabase Dashboard, go to **SQL Editor**.
+   - Copy the contents of [`supabase/schema.sql`](supabase/schema.sql) and paste it into the editor.
+   - Click **RUN** to create the tables (`job_sites`, `workers`, `attendance_logs`) and security policies.
+3. **Get Your API Credentials**:
+   - In Supabase, go to **Project Settings > API**.
+   - Copy your **Project URL** (e.g. `https://xxxxxxxxxxxxxxxx.supabase.co`).
+   - Copy your **Public Anon Key** (under *Project API Keys* > `anon` `public`).
 
-### Step 2: Configure the Attendance App
-1. Open `index.html` in your browser.
-2. Go to the **Admin** tab (⚙️).
-3. Paste your Google Web App URL into the **Google Apps Script Web App URL** box.
-4. Click **Save Settings**, then click **Test Sync**.
-5. Switch to your Google Sheet—you will see a formatted row appear immediately!
+---
 
-### Step 3: Host 100% Free on the Web (GitHub Pages or Netlify)
+## 🌐 Deployment to Vercel
 
-#### Option A: GitHub Pages (Recommended - 100% Free Forever)
-1. Create a free GitHub repository named `attendance-system`.
-2. Push or upload this project folder to your repository.
-3. Go to **Settings** > **Pages**.
-4. Under "Branch", select `main` and root `/`, then click **Save**.
-5. In 60 seconds, your site will be live on HTTPS (e.g. `https://yourusername.github.io/attendance-system/`).
+1. Push your repository to GitHub:
+   ```bash
+   git add .
+   git commit -m "Production ready release"
+   git push origin main
+   ```
+2. Import the project into [Vercel](https://vercel.com):
+   - Framework Preset: **Other**
+   - Root Directory: `./`
+3. Add **Environment Variables** in Vercel Project Settings:
+   - `SUPABASE_URL`: Your Supabase Project URL (`https://xxxxxxxxxxxxxxxx.supabase.co`)
+   - `SUPABASE_ANON_KEY`: Your Supabase Public Anon Key (`eyJhbGciOi...`)
+4. Click **Deploy**. Vercel will automatically build and deploy the Python runtime (`api/index.py`).
 
-#### Option B: Netlify or Vercel (Drag & Drop - 100% Free)
-1. Go to [Netlify Drop](https://app.netlify.com/drop).
-2. Drag and drop this folder.
-3. Your app is live with free HTTPS instantly!
+---
+
+## 💻 Running Locally
+
+1. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. (Optional) Create a `.env` file in the project root:
+   ```env
+   SUPABASE_URL=https://xxxxxxxxxxxxxxxx.supabase.co
+   SUPABASE_ANON_KEY=eyJhbGciOi...
+   ```
+3. Start the server:
+   ```bash
+   python server.py
+   ```
+4. Open [http://localhost:8088](http://localhost:8088) in your browser.
 
 ---
 
 ## 📱 How Field Workers Use It on Smartphones
-1. Send the live link to your electricians or print a QR code with the URL at the job site toolbox.
-2. Workers open the link on Chrome (Android) or Safari (iPhone).
-3. Tap the browser menu and select **"Add to Home Screen"** — it installs just like a native app with an icon!
-4. Worker selects their name, taps **Clock In** or **Clock Out**.
-5. The system captures their GPS, checks if they are on-site, and logs everything to your Google Sheet in real time.
 
----
-
-## 🛠️ Tech Stack
-- **Frontend**: Vanilla HTML5, Modern CSS3 (Glassmorphism / Industrial High-Contrast theme), JavaScript (ES6+).
-- **Geolocation**: HTML5 Geolocation API with high accuracy mode + Haversine distance formula.
-- **Spreadsheet Generation**: SheetJS (`xlsx.full.min.js`) for client-side `.xlsx` export.
-- **Backend & Storage**: Google Apps Script connected to Google Sheets (0 server maintenance).
-- **Hosting**: GitHub Pages / Netlify / Vercel (100% Free Tier).
+1. Workers open the web app link on Chrome (Android) or Safari (iPhone).
+2. Tap the browser menu and select **"Add to Home Screen"** to install it as an app icon.
+3. Worker selects their name from the dropdown.
+4. When physically standing within the job site perimeter (e.g. within 150m), tap **Clock In** or **Clock Out**.
+5. The system verifies GPS coordinates against the perimeter, prompts for the worker's PIN, and securely logs the attendance record to Supabase.

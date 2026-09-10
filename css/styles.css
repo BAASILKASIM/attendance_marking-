@@ -429,6 +429,29 @@ select.form-control {
   filter: brightness(1.08);
 }
 
+.btn-punch.btn-perimeter-blocked {
+  opacity: 0.65;
+  filter: grayscale(0.45);
+  position: relative;
+  border: 1px dashed rgba(239, 68, 68, 0.6);
+  cursor: not-allowed;
+}
+
+.btn-punch.btn-perimeter-blocked::after {
+  content: '🔒 BLOCKED';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #f87171;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  letter-spacing: 0.05em;
+}
+
 /* Secondary & Action Buttons */
 .btn-primary {
   background: var(--accent-amber);

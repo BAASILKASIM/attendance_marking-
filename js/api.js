@@ -109,7 +109,14 @@ const ApiService = {
     records.unshift(newRecord);
     localStorage.setItem(this.PUNCHES_STORAGE_KEY, JSON.stringify(records));
 
-    // 1. Real-Time Cloud Sync: Supabase (PostgreSQL)
+    // 1. Python Serverless API Sync
+    fetch('/api/punches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newRecord)
+    }).catch(err => console.warn('Python /api/punches sync warning:', err));
+
+    // 2. Real-Time Cloud Sync: Supabase (PostgreSQL)
     if (typeof SupabaseService !== 'undefined' && SupabaseService.isConfigured()) {
       try {
         await SupabaseService.recordPunch(newRecord);

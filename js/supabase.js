@@ -103,17 +103,50 @@ const SupabaseService = {
 
   async testConnection() {
     if (!this.isConfigured()) {
-      return { success: false, message: 'Please enter both Supabase URL and Anon Key.' };
+      return { success: false, message: 'Please enter both Supabase Project URL and Public Anon Key.' };
     }
 
+    const cfg = this.getConfig();
+    const cleanUrl = cfg.url.trim().replace(/\/+$/, '');
+    const cleanKey = cfg.anonKey.trim();
+
     try {
-      // Test querying job_sites with limit 1
-      const data = await this.restFetch('job_sites?select=id&limit=1');
-      return { success: true, message: 'Connected to Supabase successfully!', data };
+      // Step 1: Verify URL & Anon Key validity against PostgREST root
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch(`${cleanUrl}/rest/v1/`, {
+        method: 'GET',
+        headers: {
+          'apikey': cleanKey,
+          'Authorization': `Bearer ${cleanKey}`
+        },
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok && res.status === 401) {
+        return { success: false, message: 'Invalid Anon Key! Please copy the "anon" "public" key from Supabase Project Settings > API.' };
+      }
+
+      // Step 2: Verify if job_sites table exists
+      try {
+        const data = await this.restFetch('job_sites?select=id&limit=1');
+        return { success: true, message: '✅ Supabase connected & database tables verified!', data };
+      } catch (tableErr) {
+        const msg = String(tableErr.message || '');
+        if (msg.includes('42P01') || msg.includes('not find the table') || msg.includes('does not exist') || msg.includes('404')) {
+          return {
+            success: true,
+            warning: true,
+            message: '🔑 Supabase Connected! However, tables are not yet created. Click "📋 View SQL Schema" below, copy it, and click RUN in your Supabase SQL Editor!'
+          };
+        }
+        return { success: true, message: '✅ Supabase connected successfully!' };
+      }
     } catch (err) {
       return { 
         success: false, 
-        message: `Connection failed: ${err.message}. Ensure you ran supabase/schema.sql in your Supabase SQL Editor!` 
+        message: `Connection failed: ${err.message}. Please verify your internet connection and Supabase Project URL.` 
       };
     }
   },

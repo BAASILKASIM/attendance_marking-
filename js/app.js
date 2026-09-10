@@ -117,6 +117,25 @@ const App = {
       this.syncFromCloud(false);
       ApiService.flushOfflineQueue();
     }, 1200);
+
+    // 12. Fetch backend configuration (including Supabase credentials if configured in environment)
+    fetch('/api/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.supabaseUrl && data.supabaseAnonKey) {
+          const cur = (typeof SupabaseService !== 'undefined') ? SupabaseService.getConfig() : null;
+          if (!cur || cur.url !== data.supabaseUrl || cur.anonKey !== data.supabaseAnonKey || !cur.enabled) {
+            SupabaseService.saveConfig({
+              url: data.supabaseUrl,
+              anonKey: data.supabaseAnonKey,
+              enabled: true
+            });
+            this.updateSupabaseBadge();
+            this.syncFromCloud(false);
+          }
+        }
+      })
+      .catch(() => {});
   },
 
   bindEvents() {
@@ -638,20 +657,38 @@ const App = {
         badge.innerHTML = `
           <div class="badge-icon">✅</div>
           <div class="badge-body">
-            <strong>ON-SITE VERIFIED</strong>
-            <div>You are within <b>${result.distanceMeters}m</b> of ${activeSite.name}</div>
+            <strong>ON-SITE VERIFIED (PERIMETER CLEAR)</strong>
+            <div>You are within <b>${result.distanceMeters}m</b> of ${activeSite.name} (Allowed: ${activeSite.radius}m)</div>
           </div>
         `;
       } else {
         badge.className = 'geofence-banner outside';
         badge.innerHTML = `
-          <div class="badge-icon">⚠️</div>
+          <div class="badge-icon">🚫</div>
           <div class="badge-body">
-            <strong>OUTSIDE SITE PERIMETER</strong>
-            <div>You are <b>${result.distanceMeters}m</b> away (${result.differenceMeters}m outside radius)</div>
+            <strong>OUTSIDE SITE PERIMETER (ATTENDANCE BLOCKED)</strong>
+            <div><b>${result.distanceMeters}m</b> away from ${activeSite.name} (${result.differenceMeters}m outside ${activeSite.radius}m radius)</div>
           </div>
         `;
       }
+    }
+
+    // Strictly update clock buttons to reflect perimeter status
+    const btnClockIn = document.getElementById('btnClockIn');
+    const btnClockOut = document.getElementById('btnClockOut');
+    const subIn = btnClockIn ? btnClockIn.querySelector('.punch-subtext') : null;
+    const subOut = btnClockOut ? btnClockOut.querySelector('.punch-subtext') : null;
+
+    if (result.isWithin || this.isAdminUnlocked) {
+      if (btnClockIn) btnClockIn.classList.remove('btn-perimeter-blocked');
+      if (btnClockOut) btnClockOut.classList.remove('btn-perimeter-blocked');
+      if (subIn) subIn.textContent = 'Morning / Shift Start';
+      if (subOut) subOut.textContent = 'Evening / Shift End';
+    } else {
+      if (btnClockIn) btnClockIn.classList.add('btn-perimeter-blocked');
+      if (btnClockOut) btnClockOut.classList.add('btn-perimeter-blocked');
+      if (subIn) subIn.textContent = '🚫 Blocked: Outside Site';
+      if (subOut) subOut.textContent = '🚫 Blocked: Outside Site';
     }
   },
 
@@ -668,6 +705,39 @@ const App = {
     const activeSite = SiteManager.getActiveSite();
     if (!activeSite) {
       this.showToast('Please select an active job site.', 'warning');
+      return;
+    }
+
+    // Strict Guardrail: Check GPS acquisition
+    if (!this.currentCoords) {
+      this.showToast('📍 GPS Location Required: Please wait for a GPS lock before clocking in/out.', 'warning');
+      this.refreshGpsLocation();
+      return;
+    }
+
+    // Strict Guardrail: Block simulated GPS for regular field workers
+    if (this.currentCoords.isSimulated && !this.isAdminUnlocked) {
+      this.playChime(false);
+      this.showToast('🚫 GPS Guardrail: Simulated GPS coordinates are blocked. Real physical GPS is required.', 'error');
+      return;
+    }
+
+    // Strict Perimeter Guardrail: Employee must be inside the site boundary
+    const geofenceCheck = GeoEngine.checkGeofence(
+      this.currentCoords.latitude,
+      this.currentCoords.longitude,
+      activeSite.lat,
+      activeSite.lng,
+      activeSite.radius
+    );
+
+    if (!geofenceCheck.isWithin && !this.isAdminUnlocked) {
+      this.playChime(false);
+      if ('vibrate' in navigator) navigator.vibrate([250, 100, 250]);
+      this.showToast(
+        `🚫 PERIMETER GUARDRAIL BLOCKED: You are ${geofenceCheck.distanceMeters}m away from "${activeSite.name}". You must be physically on-site (within ${activeSite.radius}m) to clock in or out.`,
+        'error'
+      );
       return;
     }
 
@@ -736,9 +806,28 @@ const App = {
         coords = await GeoEngine.getCurrentPosition(6000);
       }
 
-      const geofence = coords
-        ? GeoEngine.checkGeofence(coords.latitude, coords.longitude, activeSite.lat, activeSite.lng, activeSite.radius)
-        : { isWithin: false, distanceMeters: null };
+      if (!coords) {
+        throw new Error('GPS coordinates are required to verify site perimeter. Please step outside or enable GPS.');
+      }
+
+      const geofence = GeoEngine.checkGeofence(
+        coords.latitude,
+        coords.longitude,
+        activeSite.lat,
+        activeSite.lng,
+        activeSite.radius
+      );
+
+      // Final strict guardrail check before recording
+      if (!geofence.isWithin && !this.isAdminUnlocked) {
+        this.playChime(false);
+        if ('vibrate' in navigator) navigator.vibrate([250, 100, 250]);
+        this.showToast(
+          `🚫 ATTENDANCE REJECTED: Outside site perimeter (${geofence.distanceMeters}m away from "${activeSite.name}", limit: ${activeSite.radius}m).`,
+          'error'
+        );
+        return;
+      }
 
       const ip = this.currentIp || await ApiService.getPublicIp();
 
@@ -872,9 +961,11 @@ const App = {
       const statusBadge = r.isWithinGeofence
         ? '<span class="status-pill on-site">On-Site</span>'
         : `<span class="status-pill off-site">${r.distanceMeters !== undefined ? r.distanceMeters + 'm' : 'Off-Site'}</span>`;
-      const syncBadge = r.syncedToSheet
-        ? '<span title="Synced to Google Sheet" class="sync-icon synced">☁️ Sync</span>'
-        : '<span title="Saved on device" class="sync-icon pending">⏳ Device</span>';
+      const syncBadge = r.syncedToSupabase
+        ? '<span title="Synced to Supabase Cloud PostgreSQL" class="sync-icon synced" style="color: #10b981; font-weight: 700;">⚡ Supabase</span>'
+        : (r.syncedToSheet
+          ? '<span title="Synced to Webhook" class="sync-icon synced">☁️ Webhook</span>'
+          : '<span title="Saved locally on device" class="sync-icon pending">⏳ Device</span>');
 
       const mapLink = (r.latitude && r.longitude)
         ? `<a href="https://www.google.com/maps?q=${r.latitude},${r.longitude}" target="_blank" rel="noopener" class="map-link">📍 Map</a>`
@@ -1159,6 +1250,15 @@ const App = {
       anonKey,
       enabled: Boolean(url && anonKey)
     });
+
+    // Also notify Python backend so other devices on the network can share
+    if (url && anonKey) {
+      fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ supabaseUrl: url, supabaseAnonKey: anonKey })
+      }).catch(() => {});
+    }
 
     this.updateSupabaseBadge();
     if (url && anonKey) {

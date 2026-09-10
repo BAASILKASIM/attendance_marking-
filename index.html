@@ -1476,20 +1476,20 @@ select.form-control {
           </div>
         </div>
 
-        <!-- Google Sheets Cloud Connection -->
+        <!-- Optional Webhook Cloud Sync -->
         <div class="card">
           <div class="card-title">
-            <span>☁️ Live Google Sheets Sync</span>
+            <span>☁️ Optional Webhook Sync (Secondary Backup)</span>
           </div>
           <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
-            Connect your Google Sheet web app so punches are instantly appended into your cloud spreadsheet.
+            Optional: Connect an external webhook or endpoint to receive real-time JSON punch payloads.
           </p>
 
           <div class="form-group">
-            <label for="settingWebhookUrl">Google Apps Script Web App URL:</label>
-            <input type="url" id="settingWebhookUrl" class="form-control" placeholder="https://script.google.com/macros/s/.../exec">
-            <small style="color: var(--text-muted); font-size: 0.72rem;">
-              See <code>google_apps_script/Code.gs</code> for the 2-minute setup.
+            <label for="settingWebhookUrl">Webhook URL:</label>
+            <input type="url" id="settingWebhookUrl" class="form-control" placeholder="https://your-webhook-endpoint.com/api/attendance">
+            <small style="color: var(--text-muted); font-size: 0.72rem; margin-top: 4px; display: block;">
+              Optional secondary integration for custom alerts or third-party webhooks.
             </small>
           </div>
 
