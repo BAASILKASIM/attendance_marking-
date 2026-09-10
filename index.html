@@ -1141,16 +1141,27 @@ select.form-control {
           <div class="time" id="liveClock">--:--:--</div>
           <div class="date" id="liveDate">Loading...</div>
         </div>
-        <!-- Admin Icon Button in Corner -->
-        <button id="btnAdminTrigger" class="btn-corner-admin active" type="button" title="Admin Portal" onclick="if(window.App)App.switchTab('logs');">
-          <span class="admin-icon-symbol">⚙️</span>
+        <!-- Small Admin Icon Button in Corner -->
+        <button id="btnAdminTrigger" class="btn-corner-admin" type="button" title="Admin Login">
+          <span class="admin-icon-symbol">🔒</span>
           <span class="admin-btn-label">Admin</span>
         </button>
       </div>
     </header>
 
-    <!-- Navigation Tabs (Always directly accessible) -->
-    <nav id="mainTabNav" class="tab-navigation admin-nav">
+    <!-- Admin Mode Banner (Visible only when Admin is logged in) -->
+    <div id="adminModeBanner" class="admin-mode-banner" style="display: none;">
+      <div class="admin-mode-info">
+        <span class="admin-badge-icon">👑</span>
+        <span><strong>Admin Portal Active</strong> (Full Management)</span>
+      </div>
+      <button id="btnAdminLogout" class="btn-sm btn-admin-exit" type="button" title="Lock & Return to Worker Screen">
+        🔒 Exit & Lock
+      </button>
+    </div>
+
+    <!-- Navigation Tabs (Hidden for regular workers, shown only when Admin is unlocked) -->
+    <nav id="mainTabNav" class="tab-navigation admin-nav" style="display: none;">
       <button class="tab-btn active" data-tab="punch">
         <span class="tab-icon">⚡</span>
         <span>Punch</span>
@@ -1258,8 +1269,8 @@ select.form-control {
         <!-- Prominent Admin Portal Access Button -->
         <div style="margin-top: 22px; text-align: center; padding: 12px; background: rgba(13, 20, 36, 0.6); border-radius: var(--radius-sm); border: 1px dashed var(--border-color);">
           <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px;">Supervisor or Business Owner?</div>
-          <button id="btnPunchAdminLink" class="btn-secondary btn-sm" type="button" style="padding: 7px 16px;" onclick="if(window.App)App.switchTab('logs');">
-            ⚙️ Open Admin & Management Portal
+          <button id="btnPunchAdminLink" class="btn-secondary btn-sm" type="button" style="padding: 7px 16px;">
+            🔒 Open Admin & Management Portal
           </button>
         </div>
 
@@ -1478,11 +1489,57 @@ select.form-control {
           </div>
         </div>
 
+        <!-- Master Admin Password Security -->
+        <div class="card">
+          <div class="card-title">
+            <span>🔒 Change Admin Password</span>
+          </div>
+          <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">
+            Change the master password used to unlock this Admin portal.
+          </p>
+          <div class="form-group">
+            <label for="settingAdminPassword">New Admin Password:</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="settingAdminPassword" class="form-control" placeholder="Enter new password">
+              <button type="button" id="btnToggleNewPw" class="btn-toggle-pw" title="Show/Hide">👁️</button>
+            </div>
+          </div>
+          <button id="btnUpdateAdminPassword" class="btn-secondary btn-block" type="button">
+            Save New Admin Password
+          </button>
+        </div>
+
       </section>
 
     </main>
 
     
+    <!-- ADMIN AUTHENTICATION MODAL (NO HINT) -->
+    <div id="adminAuthModal" class="modal-overlay">
+      <div class="modal-content admin-modal-box">
+        <div style="font-size: 2rem; margin-bottom: 6px;">🔐</div>
+        <h2 class="modal-title" style="font-size: 1.25rem;">Admin Access</h2>
+        <p style="color: var(--text-secondary); font-size: 0.82rem; margin-bottom: 16px;">
+          Enter Admin Password to manage attendance records, job sites, and settings.
+        </p>
+
+        <form id="formAdminAuth" onsubmit="event.preventDefault(); App.submitAdminAuth();">
+          <div class="form-group" style="text-align: left;">
+            <label for="adminAuthPassword">Password:</label>
+            <div class="password-input-wrapper">
+              <input type="password" id="adminAuthPassword" class="form-control" placeholder="Enter admin password" autocomplete="current-password" required>
+              <button type="button" id="btnToggleAdminPw" class="btn-toggle-pw" title="Show/Hide Password">👁️</button>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px;">
+            <button type="button" class="btn-secondary btn-block" onclick="App.closeAdminModal()">Cancel</button>
+            <button type="submit" class="btn-primary btn-block">Unlock Admin</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- WORKER PIN PAD MODAL -->
     <div id="workerPinModal" class="modal-overlay">
       <div class="modal-content pin-modal-box">

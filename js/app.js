@@ -18,7 +18,7 @@ const App = {
   pendingPunchType: null,
   currentPinInput: '',
   audioCtx: null,
-  isAdminUnlocked: true,
+  isAdminUnlocked: false,
   _initialized: false,
   _clockInterval: null,
 
@@ -36,8 +36,12 @@ const App = {
       console.warn('Clock init error:', e);
     }
 
-    // 2. Admin mode permanently unlocked
-    this.isAdminUnlocked = true;
+    // 2. Restore admin session if unlocked
+    try {
+      this.isAdminUnlocked = sessionStorage.getItem('contractor_admin_session_unlocked') === 'true';
+    } catch (e) {
+      this.isAdminUnlocked = false;
+    }
 
     // 3. Bind UI event listeners
     try {
@@ -46,8 +50,9 @@ const App = {
       console.warn('bindEvents error:', e);
     }
 
-    // 4. Update admin navigation state
+    // 4. Setup password toggles & admin navigation state
     try {
+      this.setupPasswordToggles();
       this.updateAdminUiState();
     } catch (e) {
       console.warn('Admin UI state error:', e);
@@ -138,7 +143,11 @@ const App = {
     const btnAdminTrigger = document.getElementById('btnAdminTrigger');
     if (btnAdminTrigger) {
       btnAdminTrigger.addEventListener('click', () => {
-        this.switchTab('logs');
+        if (this.isAdminUnlocked) {
+          this.switchTab('logs');
+        } else {
+          this.openAdminModal();
+        }
       });
     }
 
@@ -146,8 +155,18 @@ const App = {
     const btnPunchAdminLink = document.getElementById('btnPunchAdminLink');
     if (btnPunchAdminLink) {
       btnPunchAdminLink.addEventListener('click', () => {
-        this.switchTab('logs');
+        if (this.isAdminUnlocked) {
+          this.switchTab('logs');
+        } else {
+          this.openAdminModal();
+        }
       });
+    }
+
+    // Admin Logout button
+    const btnAdminLogout = document.getElementById('btnAdminLogout');
+    if (btnAdminLogout) {
+      btnAdminLogout.addEventListener('click', () => this.logoutAdmin());
     }
 
     // Navigation Tabs
@@ -283,6 +302,12 @@ const App = {
     const btnCopySqlSchema = document.getElementById('btnCopySqlSchema');
     if (btnCopySqlSchema) {
       btnCopySqlSchema.addEventListener('click', () => this.copySqlSchema());
+    }
+
+    // Update Admin Password
+    const btnUpdateAdminPassword = document.getElementById('btnUpdateAdminPassword');
+    if (btnUpdateAdminPassword) {
+      btnUpdateAdminPassword.addEventListener('click', () => this.handleUpdateAdminPassword());
     }
 
     // Test Webhook
@@ -441,6 +466,10 @@ const App = {
   },
 
   switchTab(tabName) {
+    if (!this.isAdminUnlocked && tabName !== 'punch') {
+      this.openAdminModal();
+      return;
+    }
     this.activeTab = tabName;
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tab === tabName);
@@ -1571,21 +1600,115 @@ CREATE INDEX IF NOT EXISTS idx_logs_site_name ON attendance_logs (site_name);`;
     }
   },
 
-  // Admin Navigation State
+  // Admin Modal & Access Control
   openAdminModal() {
-    this.switchTab('logs');
+    const modal = document.getElementById('adminAuthModal');
+    const input = document.getElementById('adminAuthPassword');
+    if (input) input.value = '';
+    if (modal) modal.classList.add('open');
+    setTimeout(() => { if (input) input.focus(); }, 150);
   },
 
-  closeAdminModal() {},
+  closeAdminModal() {
+    const modal = document.getElementById('adminAuthModal');
+    if (modal) modal.classList.remove('open');
+  },
+
+  submitAdminAuth() {
+    const input = document.getElementById('adminAuthPassword');
+    if (!input) return;
+    const pwd = input.value;
+    if (ApiService.verifyAdminPassword(pwd)) {
+      this.isAdminUnlocked = true;
+      try {
+        sessionStorage.setItem('contractor_admin_session_unlocked', 'true');
+      } catch (e) {}
+      this.closeAdminModal();
+      this.updateAdminUiState();
+      this.switchTab('logs');
+      this.showToast('👑 Admin mode unlocked! Full access granted.', 'success');
+    } else {
+      this.showToast('Incorrect Admin Password. Access denied.', 'error');
+      input.value = '';
+      input.focus();
+    }
+  },
+
+  logoutAdmin() {
+    this.isAdminUnlocked = false;
+    try {
+      sessionStorage.removeItem('contractor_admin_session_unlocked');
+    } catch (e) {}
+    this.updateAdminUiState();
+    this.switchTab('punch');
+    this.showToast('Admin locked. Returned to worker mode.', 'info');
+  },
 
   updateAdminUiState() {
     const nav = document.getElementById('mainTabNav');
-    if (nav) nav.style.display = 'grid';
+    const banner = document.getElementById('adminModeBanner');
     const btnTrigger = document.getElementById('btnAdminTrigger');
-    if (btnTrigger) {
-      btnTrigger.classList.add('active');
-      btnTrigger.innerHTML = '<span class="admin-icon-symbol">⚙️</span> <span class="admin-btn-label">Admin</span>';
+
+    if (this.isAdminUnlocked) {
+      if (nav) nav.style.display = 'grid';
+      if (banner) banner.style.display = 'flex';
+      if (btnTrigger) {
+        btnTrigger.classList.add('active');
+        btnTrigger.innerHTML = '<span class="admin-icon-symbol">🔓</span> <span class="admin-btn-label">Unlocked</span>';
+      }
+    } else {
+      if (nav) nav.style.display = 'none';
+      if (banner) banner.style.display = 'none';
+      if (btnTrigger) {
+        btnTrigger.classList.remove('active');
+        btnTrigger.innerHTML = '<span class="admin-icon-symbol">🔒</span> <span class="admin-btn-label">Admin</span>';
+      }
     }
+  },
+
+  setupPasswordToggles() {
+    const btnToggleAuth = document.getElementById('btnToggleAdminPw');
+    const inputAuth = document.getElementById('adminAuthPassword');
+    if (btnToggleAuth && inputAuth) {
+      btnToggleAuth.addEventListener('click', () => {
+        const isPassword = inputAuth.type === 'password';
+        inputAuth.type = isPassword ? 'text' : 'password';
+        btnToggleAuth.textContent = isPassword ? '🙈' : '👁️';
+      });
+    }
+
+    const btnToggleNew = document.getElementById('btnToggleNewPw');
+    const inputNew = document.getElementById('settingAdminPassword');
+    if (btnToggleNew && inputNew) {
+      btnToggleNew.addEventListener('click', () => {
+        const isPassword = inputNew.type === 'password';
+        inputNew.type = isPassword ? 'text' : 'password';
+        btnToggleNew.textContent = isPassword ? '🙈' : '👁️';
+      });
+    }
+  },
+
+  handleUpdateAdminPassword() {
+    const input = document.getElementById('settingAdminPassword');
+    if (!input || !input.value.trim()) {
+      this.showToast('Please enter a new password.', 'warning');
+      return;
+    }
+    const newPw = input.value.trim();
+    const cfg = ApiService.getConfig();
+    cfg.adminPassword = newPw;
+    cfg.adminPin = newPw;
+    ApiService.saveConfig(cfg);
+
+    // Notify backend
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminPassword: newPw })
+    }).catch(() => {});
+
+    input.value = '';
+    this.showToast('Admin password updated successfully!', 'success');
   },
 
   async testWebhookConnection() {
