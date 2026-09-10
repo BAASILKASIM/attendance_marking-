@@ -18,34 +18,40 @@ const ApiService = {
     } catch (e) {
       console.warn('Config load error', e);
     }
-    if (!cfg) {
-      cfg = {
-        webhookUrl: this.DEFAULT_WEBHOOK_URL,
-        autoSync: true,
-        adminPassword: 'admin7890',
-        adminPin: 'admin7890',
-        workers: [
-          { id: 'w1', name: 'Ramesh (Senior Electrician)', pin: '1111' },
-          { id: 'w2', name: 'Suresh (Wireman)', pin: '2222' },
-          { id: 'w3', name: 'Anil Kumar (Assistant)', pin: '3333' },
-          { id: 'w4', name: 'Karthik (Supervisor)', pin: '4444' }
-        ]
-      };
-      this.saveConfig(cfg);
+
+    if (!cfg || typeof cfg !== 'object') {
+      cfg = {};
     }
-    // Always guarantee permanent webhook URL across all users & devices
+
     if (!cfg.webhookUrl || cfg.webhookUrl.trim() === '') {
       cfg.webhookUrl = this.DEFAULT_WEBHOOK_URL;
-      this.saveConfig(cfg);
     }
     if (!cfg.adminPassword) {
       cfg.adminPassword = cfg.adminPin || 'admin7890';
     }
+    if (!cfg.adminPin) {
+      cfg.adminPin = cfg.adminPassword;
+    }
+
+    // Guarantee default workers if missing or empty
+    if (!Array.isArray(cfg.workers) || cfg.workers.length === 0) {
+      cfg.workers = [
+        { id: 'w1', name: 'Ramesh (Senior Electrician)', pin: '1111' },
+        { id: 'w2', name: 'Suresh (Wireman)', pin: '2222' },
+        { id: 'w3', name: 'Anil Kumar (Assistant)', pin: '3333' },
+        { id: 'w4', name: 'Karthik (Supervisor)', pin: '4444' }
+      ];
+    }
+    this.saveConfig(cfg);
     return cfg;
   },
 
   saveConfig(cfg) {
-    localStorage.setItem(this.CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+    try {
+      localStorage.setItem(this.CONFIG_STORAGE_KEY, JSON.stringify(cfg));
+    } catch (e) {
+      console.warn('Storage saveConfig error:', e);
+    }
   },
 
   verifyAdminPassword(input) {
@@ -238,34 +244,45 @@ const ApiService = {
 
   exportToExcel(format = 'xlsx') {
     const records = this.getLocalPunches();
-    if (records.length === 0) {
-      if (window.App && typeof window.App.showToast === 'function') {
-        window.App.showToast('No attendance records recorded yet. Punch an attendance first!', 'warning');
-      } else {
-        alert('No attendance records to export yet.');
-      }
-      return;
-    }
-
-    const rows = records.map(r => {
+    const hasRecords = records && records.length > 0;
+    
+    // Build rows from records or create a structured template report if brand new
+    const rows = hasRecords ? records.map(r => {
       const d = new Date(r.timestamp);
       return {
         'Timestamp': d.toLocaleString(),
         'Date': d.toLocaleDateString(),
         'Time': d.toLocaleTimeString(),
-        'Worker Name': r.workerName,
-        'Punch Type': r.punchType,
-        'Site Name': r.siteName,
+        'Worker Name': r.workerName || 'Unknown',
+        'Punch Type': r.punchType || 'Clock-In',
+        'Site Name': r.siteName || 'Unassigned',
         'Status': r.isWithinGeofence ? 'ON-SITE' : 'OFF-SITE',
-        'Distance (m)': r.distanceMeters !== undefined ? Math.round(r.distanceMeters) : '',
+        'Distance (m)': (r.distanceMeters !== undefined && r.distanceMeters !== null) ? Math.round(r.distanceMeters) : '',
         'Latitude': r.latitude || '',
         'Longitude': r.longitude || '',
         'Google Maps URL': (r.latitude && r.longitude) ? `https://www.google.com/maps?q=${r.latitude},${r.longitude}` : '',
         'IP Address': r.ipAddress || '',
         'Device Info': r.deviceInfo || '',
-        'Cloud Synced': r.syncedToSheet ? 'Yes' : 'Pending'
+        'Cloud Synced': r.syncedToSheet ? 'Yes' : (r.syncedToSupabase ? 'Supabase' : 'Pending')
       };
-    });
+    }) : [
+      {
+        'Timestamp': new Date().toLocaleString(),
+        'Date': new Date().toLocaleDateString(),
+        'Time': new Date().toLocaleTimeString(),
+        'Worker Name': '(Template - Attendance System Ready)',
+        'Punch Type': 'Clock-In',
+        'Site Name': (typeof SiteManager !== 'undefined' && SiteManager.getActiveSite()) ? SiteManager.getActiveSite().name : 'Main Workshop',
+        'Status': 'ON-SITE',
+        'Distance (m)': 0,
+        'Latitude': '',
+        'Longitude': '',
+        'Google Maps URL': '',
+        'IP Address': '',
+        'Device Info': '',
+        'Cloud Synced': 'Ready'
+      }
+    ];
 
     const isXls = String(format).toLowerCase() === 'xls';
     const ext = isXls ? 'xls' : 'xlsx';
@@ -280,7 +297,10 @@ const ApiService = {
         const bookType = isXls ? 'biff8' : 'xlsx';
         XLSX.writeFile(workbook, fileName, { bookType: bookType });
         if (window.App && typeof window.App.showToast === 'function') {
-          window.App.showToast(`Exported ${records.length} records to .${ext}!`, 'success');
+          const msg = hasRecords 
+            ? `Exported ${records.length} records to .${ext}!`
+            : `Downloaded Excel template spreadsheet (.${ext})!`;
+          window.App.showToast(msg, 'success');
         }
         return;
       } catch (err) {

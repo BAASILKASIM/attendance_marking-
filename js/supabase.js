@@ -355,9 +355,12 @@ const SupabaseService = {
   }
 };
 
-// Auto-initialize on script load
+// Auto-initialize on script load (immediate or on DOM ready)
 if (typeof window !== 'undefined') {
-  window.addEventListener('DOMContentLoaded', () => {
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', () => SupabaseService.init());
+  } else {
     SupabaseService.init();
-  });
+  }
+  window.addEventListener('load', () => SupabaseService.init());
 }

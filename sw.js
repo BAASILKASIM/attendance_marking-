@@ -1,13 +1,13 @@
-const CACHE_NAME = 'contractor-attendance-v4';
+const CACHE_NAME = 'contractor-attendance-v6';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
-  './js/geo.js?v=4',
-  './js/sites.js?v=4',
-  './js/supabase.js?v=1',
-  './js/api.js?v=4',
-  './js/app.js?v=4',
+  './js/geo.js?v=6',
+  './js/sites.js?v=6',
+  './js/supabase.js?v=6',
+  './js/api.js?v=6',
+  './js/app.js?v=6',
   './js/xlsx.full.min.js',
   './manifest.json',
   './assets/icon.svg',

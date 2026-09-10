@@ -2,9 +2,12 @@
  * APP.JS - Main Contractor Attendance UI Controller
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => App.init());
+} else {
   App.init();
-});
+}
+window.addEventListener('load', () => App.init());
 
 const App = {
   activeTab: 'punch',
@@ -16,51 +19,100 @@ const App = {
   currentPinInput: '',
   audioCtx: null,
   isAdminUnlocked: false,
+  _initialized: false,
+  _clockInterval: null,
 
   init() {
-    // Restore admin session if already unlocked in this browser tab
+    if (this._initialized) return;
+    this._initialized = true;
+
+    // 1. Immediately start clock so UI is never stuck on --:--:--
+    try {
+      this.updateClock();
+      if (!this._clockInterval) {
+        this._clockInterval = setInterval(() => this.updateClock(), 1000);
+      }
+    } catch (e) {
+      console.warn('Clock init error:', e);
+    }
+
+    // 2. Restore admin session if unlocked
     try {
       this.isAdminUnlocked = sessionStorage.getItem('contractor_admin_session_unlocked') === 'true';
     } catch (e) {
       this.isAdminUnlocked = false;
     }
 
-    this.bindEvents();
-    this.setupPasswordToggles();
-    this.updateAdminUiState();
-    this.loadWorkers();
-    this.loadSites();
-    this.renderLogsTable();
-    this.updateClock();
-    setInterval(() => this.updateClock(), 1000);
+    // 3. Bind UI event listeners
+    try {
+      this.bindEvents();
+    } catch (e) {
+      console.warn('bindEvents error:', e);
+    }
 
-    // Initial GPS acquisition
-    this.refreshGpsLocation();
-    GeoEngine.startWatching(
-      (pos) => this.onGpsUpdate(pos),
-      (err) => this.onGpsError(err)
-    );
+    // 4. Setup password toggles & admin navigation state
+    try {
+      this.setupPasswordToggles();
+      this.updateAdminUiState();
+    } catch (e) {
+      console.warn('Admin UI state error:', e);
+    }
 
-    // Initial IP fetch
-    ApiService.getPublicIp().then(ip => {
-      this.currentIp = ip;
-      const el = document.getElementById('displayIp');
-      if (el) el.textContent = ip;
-    });
+    // 5. Populate workers & sites (guaranteed fail-safe)
+    try {
+      this.loadWorkers();
+    } catch (e) {
+      console.warn('loadWorkers error:', e);
+    }
 
-    // Check offline sync queue
-    window.addEventListener('online', () => {
-      this.showToast('Online connection restored. Syncing pending punches...', 'success');
-      ApiService.flushOfflineQueue();
-      this.syncFromCloud(false);
-    });
+    try {
+      this.loadSites();
+    } catch (e) {
+      console.warn('loadSites error:', e);
+    }
 
-    // Register Service Worker
+    // 6. Render logs table
+    try {
+      this.renderLogsTable();
+    } catch (e) {
+      console.warn('renderLogsTable error:', e);
+    }
+
+    // 7. Initial GPS acquisition
+    try {
+      this.refreshGpsLocation();
+      GeoEngine.startWatching(
+        (pos) => this.onGpsUpdate(pos),
+        (err) => this.onGpsError(err)
+      );
+    } catch (e) {
+      console.warn('GPS watch error:', e);
+    }
+
+    // 8. Public IP fetch
+    try {
+      ApiService.getPublicIp().then(ip => {
+        this.currentIp = ip;
+        const el = document.getElementById('displayIp');
+        if (el) el.textContent = ip;
+      }).catch(() => {});
+    } catch (e) {}
+
+    // 9. Check offline sync queue
+    try {
+      window.addEventListener('online', () => {
+        this.showToast('Online connection restored. Syncing pending punches...', 'success');
+        ApiService.flushOfflineQueue();
+        this.syncFromCloud(false);
+      });
+    } catch (e) {}
+
+    // 10. Register Service Worker
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW registration error:', err));
     }
 
-    // Auto-sync cloud data in background on load
+    // 11. Auto-sync cloud data in background on load
     setTimeout(() => {
       this.syncFromCloud(false);
       ApiService.flushOfflineQueue();
@@ -461,8 +513,17 @@ const App = {
     const select = document.getElementById('workerSelect');
     if (!select) return;
 
+    const workers = (cfg && Array.isArray(cfg.workers) && cfg.workers.length > 0)
+      ? cfg.workers
+      : [
+          { id: 'w1', name: 'Ramesh (Senior Electrician)', pin: '1111' },
+          { id: 'w2', name: 'Suresh (Wireman)', pin: '2222' },
+          { id: 'w3', name: 'Anil Kumar (Assistant)', pin: '3333' },
+          { id: 'w4', name: 'Karthik (Supervisor)', pin: '4444' }
+        ];
+
     select.innerHTML = '<option value="" disabled selected>-- Select Your Name --</option>';
-    cfg.workers.forEach(w => {
+    workers.forEach(w => {
       const opt = document.createElement('option');
       opt.value = w.id;
       opt.textContent = w.name;
@@ -472,7 +533,8 @@ const App = {
 
   onWorkerSelected(workerId) {
     const cfg = ApiService.getConfig();
-    this.selectedWorker = cfg.workers.find(w => w.id === workerId);
+    const workers = (cfg && Array.isArray(cfg.workers) && cfg.workers.length > 0) ? cfg.workers : [];
+    this.selectedWorker = workers.find(w => w.id === workerId) || null;
     const workerBadge = document.getElementById('selectedWorkerBadge');
     if (workerBadge) {
       if (this.selectedWorker) {
@@ -485,8 +547,11 @@ const App = {
   },
 
   loadSites() {
-    const sites = SiteManager.getSites();
-    const activeSite = SiteManager.getActiveSite();
+    let sites = SiteManager.getSites();
+    if (!Array.isArray(sites) || sites.length === 0) {
+      sites = SiteManager.defaultSites;
+    }
+    const activeSite = SiteManager.getActiveSite() || sites[0];
     const select = document.getElementById('punchSiteSelect');
     if (!select) return;
 

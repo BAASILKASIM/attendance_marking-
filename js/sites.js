@@ -57,21 +57,28 @@ const SiteManager = {
 
   getSiteById(id) {
     const sites = this.getSites();
-    return sites.find(s => s.id === id) || sites[0] || null;
+    return sites.find(s => s.id === id) || sites[0] || this.defaultSites[0];
   },
 
   getActiveSite() {
     const sites = this.getSites();
+    if (!Array.isArray(sites) || sites.length === 0) {
+      return this.defaultSites[0];
+    }
     const activeId = localStorage.getItem(this.ACTIVE_SITE_KEY);
     if (activeId) {
       const found = sites.find(s => s.id === activeId);
       if (found) return found;
     }
-    return sites[0] || null;
+    return sites[0] || this.defaultSites[0];
   },
 
   setActiveSite(id) {
-    localStorage.setItem(this.ACTIVE_SITE_KEY, id);
+    try {
+      localStorage.setItem(this.ACTIVE_SITE_KEY, id);
+    } catch (e) {
+      console.warn('Storage setActiveSite error:', e);
+    }
   },
 
   addSite(siteData) {
